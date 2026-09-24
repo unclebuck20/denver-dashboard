@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: "0 13 * * 1"   # Mondays 6am Pacific
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["scripts/**", ".github/workflows/**"]
 
 permissions:
   contents: write
