@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["scripts/**", ".github/workflows/**"]
+    paths: ["scripts/**", "docs/index.html", ".github/workflows/**"]
 
 permissions:
   contents: write
@@ -21,10 +21,11 @@ jobs:
           python-version: "3.12"
       - run: pip install pandas requests shapely
       - run: python scripts/fetch.py
+      - run: python scripts/build.py
       - name: Commit updated data
         run: |
           git config user.name "data-bot"
           git config user.email "data-bot@users.noreply.github.com"
-          git add data/
+          git add data/ docs/
           git diff --cached --quiet || git commit -m "Data refresh $(date -u +%F)"
           git push

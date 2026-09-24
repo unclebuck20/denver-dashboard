@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Denver Neighborhood Sales</title>
+<meta name="description" content="Arm's-length single-family home sales across 13 Denver neighborhoods since 2015, refreshed weekly from City and County of Denver open data.">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f7f7f5;
+  --surface: #fcfcfb;
+  --border: #e4e3de;
+  --grid: #ecebe7;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --text-3: #75746f;
+  --accent: #2a78d6;
+  --chip: #f0efec;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --good: #1b7f3b; --bad: #c33a39;
+  --new-bg: #e6f0fc; --new-fg: #1c5cab;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg: #111110; --surface: #1a1a19; --border: #2e2e2b; --grid: #262624;
+    --text: #ffffff; --text-2: #c3c2b7; --text-3: #9a998f; --accent: #3987e5; --chip: #262624;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --good: #4cc27a; --bad: #e66767; --new-bg: #16325a; --new-fg: #9ec5f4;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110; --surface: #1a1a19; --border: #2e2e2b; --grid: #262624;
+  --text: #ffffff; --text-2: #c3c2b7; --text-3: #9a998f; --accent: #3987e5; --chip: #262624;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --good: #4cc27a; --bad: #e66767; --new-bg: #16325a; --new-fg: #9ec5f4;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding: 28px 16px 64px; }
+header h1 { font-size: 24px; letter-spacing: -0.01em; margin: 0 0 4px; }
+header p { margin: 0; color: var(--text-2); }
+.num { font-variant-numeric: tabular-nums; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 22px 0 16px; }
+.seg { display: inline-flex; background: var(--chip); border-radius: 8px; padding: 2px; }
+.seg button {
+  border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px;
+  padding: 5px 10px; border-radius: 6px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--border); font-weight: 600; }
+.seg button:disabled { opacity: .4; cursor: not-allowed; }
+.ctl { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 13px; }
+.ctl input[type=range] { width: 130px; accent-color: var(--accent); }
+.ctl output { color: var(--text); font-weight: 600; min-width: 64px; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+.grid2 { display: grid; gap: 16px; }
+.grid2 > * { min-width: 0; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.tile .label { color: var(--text-2); font-size: 12px; }
+.tile .value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; margin-top: 2px; }
+.tile .sub { color: var(--text-3); font-size: 12px; }
+.up { color: var(--good); } .down { color: var(--bad); }
+@media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+
+h2 { font-size: 15px; margin: 0 0 2px; }
+.card .hint { color: var(--text-3); font-size: 12px; margin: 0 0 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 8px; font-size: 12px; color: var(--text-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
+
+#chart { position: relative; }
+#chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+#chart .axis text { fill: var(--text-3); font-size: 11px; }
+#chart .gridline { stroke: var(--grid); stroke-width: 1; }
+#chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+#chart .endlabel { font-size: 11px; fill: var(--text-2); }
+#chart .cross { stroke: var(--text-3); stroke-width: 1; stroke-dasharray: 2 3; }
+.tip {
+  position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  min-width: 170px; display: none; z-index: 5;
+}
+.tip .when { color: var(--text-3); margin-bottom: 4px; }
+.tip .row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.tip .row b { font-weight: 650; }
+.tip .row span { color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; }
+.tip .row i { width: 10px; height: 2px; display: inline-block; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 600; color: var(--text-2); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; }
+th.r, td.r { text-align: right; }
+td { padding: 7px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+tbody tr.nb { cursor: pointer; }
+tbody tr.nb:hover { background: var(--chip); }
+tr.cluster td { color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding-top: 12px; border-bottom: 0; cursor: default; }
+.swatch { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--border); display: inline-block; vertical-align: -2px; margin-right: 8px; }
+.scroll { overflow-x: auto; }
+.badge { background: var(--new-bg); color: var(--new-fg); font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
+.note { color: var(--text-3); font-size: 12px; margin-top: 10px; }
+details { margin-top: 16px; color: var(--text-2); }
+details summary { cursor: pointer; font-weight: 600; color: var(--text); }
+details li { margin: 3px 0; }
+.warn { border-left: 3px solid #eda100; padding: 8px 12px; background: var(--chip); border-radius: 6px; color: var(--text-2); font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Denver Neighborhood Sales</h1>
+    <p id="subtitle">Single-family, arm's-length sales · 13 neighborhoods · since 2015</p>
+  </header>
+
+  <div class="filters" role="group" aria-label="Filters">
+    <div class="seg" id="range" aria-label="Date range">
+      <button data-v="all">Since 2015</button><button data-v="5">5 yr</button><button data-v="3">3 yr</button><button data-v="1">1 yr</button>
+    </div>
+    <div class="seg" id="metric" aria-label="Metric">
+      <button data-v="ppsf">$ / sq ft</button><button data-v="price">Median price</button>
+    </div>
+    <div class="seg" id="dollars" aria-label="Dollars">
+      <button data-v="nominal">Nominal $</button><button data-v="real">Today's $</button>
+    </div>
+    <label class="ctl" id="sizectl">Min above-grade size
+      <input type="range" id="minsqft" min="0" max="3000" step="100">
+      <output id="minsqftOut" class="num"></output>
+    </label>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid2">
+    <section class="card">
+      <h2 id="chartTitle">Median $ / sq ft</h2>
+      <p class="hint">Rolling 3-month median. Pick up to 4 neighborhoods in the table below.</p>
+      <div class="legend" id="legend"></div>
+      <div id="chart"><div class="tip" id="tip" role="status" aria-live="polite"></div></div>
+    </section>
+
+    <section class="card">
+      <h2>Neighborhoods</h2>
+      <p class="hint">Last 12 months vs. the 12 before. Click a row to add or remove it from the chart.</p>
+      <div class="scroll"><table id="nbTable"></table></div>
+    </section>
+
+    <section class="card">
+      <h2>Recent sales</h2>
+      <p class="hint" id="recentHint">Most recently recorded deeds in the selected neighborhoods.</p>
+      <div class="scroll"><table id="recent"></table></div>
+    </section>
+  </div>
+
+  <details>
+    <summary>How the numbers are built</summary>
+    <div id="method"></div>
+  </details>
+</div>
+
+<script>
+(async function () {
+  const SLOTS = ["--s1", "--s2", "--s3", "--s4"];
+  const MAX_SEL = 4;
+  const fmt$ = v => v == null ? "–" : "$" + Math.round(v).toLocaleString("en-US");
+  const fmtK = v => v >= 1e6 ? "$" + (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + "M" : "$" + Math.round(v / 1e3) + "K";
+  const fmtPct = v => v == null || !isFinite(v) ? "–" : (v > 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const el = (tag, attrs = {}, text) => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
+  const median = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+  const data = await (await fetch("data.json", { cache: "no-cache" })).json();
+  const M = data.meta, cols = M.columns, ix = Object.fromEntries(cols.map((c, i) => [c, i]));
+  const NB = M.neighborhoods;
+  const cpi = data.cpi, cpiKeys = cpi ? Object.keys(cpi).sort() : [];
+  const cpiLatest = cpi ? cpi[cpiKeys[cpiKeys.length - 1]] : null;
+  const cpiFor = ym => { if (!cpi) return null; if (cpi[ym]) return cpi[ym]; return cpi[cpiKeys[cpiKeys.length - 1]]; };
+
+  const sales = data.sales.map(r => ({
+    date: r[ix.date], ym: r[ix.date].slice(0, 7), nb: r[ix.nbhd], price: r[ix.price], sqft: r[ix.sqft],
+    yb: r[ix.year_built], lot: r[ix.lot_sqft], zone: r[ix.zone], addr: r[ix.address], rec: r[ix.recorded],
+    beds: ix.beds != null ? r[ix.beds] : null, baths: ix.baths != null ? r[ix.baths] : null,
+  }));
+  const lastDate = sales.reduce((m, s) => s.date > m ? s.date : m, "0");
+  const endYM = lastDate.slice(0, 7);
+
+  // ---- state
+  const state = { range: "all", metric: "ppsf", dollars: "nominal", minSqft: M.default_min_sqft, sel: [] , color: {} };
+  try { const saved = JSON.parse(localStorage.getItem("dnsd") || "null"); if (saved) Object.assign(state, saved); } catch (e) {}
+  if (!state.sel.length) { state.sel = [6, 2]; state.color = { 6: 0, 2: 1 }; } // Washington Park, West Highland
+  if (!cpi) state.dollars = "nominal";
+  const save = () => { try { localStorage.setItem("dnsd", JSON.stringify(state)); } catch (e) {} };
+
+  // ---- subtitle + size control
+  const built = new Date(M.built);
+  document.getElementById("subtitle").textContent =
+    `Single-family, arm's-length sales · 13 neighborhoods · deeds recorded through ${new Date(M.latest_recorded + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · refreshed ${built.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  const sizeCtl = document.getElementById("sizectl"), slider = document.getElementById("minsqft"), out = document.getElementById("minsqftOut");
+  if (M.beds_mode === "beds") { sizeCtl.firstChild.textContent = "3+ bed / 2+ bath · min size "; }
+  slider.value = state.minSqft;
+
+  const eligible = s => s.sqft >= state.minSqft && (M.beds_mode !== "beds" || (s.beds >= 3 && s.baths >= 2));
+  const adj = s => {
+    const v = state.metric === "ppsf" ? s.price / s.sqft : s.price;
+    return state.dollars === "real" && cpi ? v * cpiLatest / cpiFor(s.ym) : v;
+  };
+  const addMonths = (ym, k) => { let [y, m] = ym.split("-").map(Number); m += k; y += Math.floor((m - 1) / 12); m = ((m - 1) % 12 + 12) % 12 + 1; return `${y}-${String(m).padStart(2, "0")}`; };
+  const startYM = () => state.range === "all" ? "2015-01" : addMonths(endYM, -12 * Number(state.range) + 1);
+
+  // ---- segmented controls
+  function bindSeg(id, key, onChange) {
+    const root = document.getElementById(id);
+    const paint = () => root.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(state[key]))));
+    root.addEventListener("click", e => { const b = e.target.closest("button"); if (!b || b.disabled) return; state[key] = b.dataset.v; paint(); save(); onChange(); });
+    paint();
+  }
+  bindSeg("range", "range", render); bindSeg("metric", "metric", render); bindSeg("dollars", "dollars", render);
+  if (!cpi) { const b = document.querySelector('#dollars [data-v="real"]'); b.disabled = true; b.title = "Inflation data unavailable this refresh"; }
+  slider.addEventListener("input", () => { state.minSqft = Number(slider.value); save(); render(); });
+
+  // ---- aggregation helpers
+  function windowStats(nbs, fromYM, toYM) {
+    const rows = sales.filter(s => nbs.includes(s.nb) && s.ym >= fromYM && s.ym <= toYM && eligible(s));
+    return { n: rows.length, price: median(rows.map(s => state.dollars === "real" && cpi ? s.price * cpiLatest / cpiFor(s.ym) : s.price)),
+             ppsf: median(rows.map(s => (state.dollars === "real" && cpi ? s.price * cpiLatest / cpiFor(s.ym) : s.price) / s.sqft)) };
+  }
+  const t12 = [addMonths(endYM, -11), endYM], p12 = [addMonths(endYM, -23), addMonths(endYM, -12)], p36 = [addMonths(endYM, -47), addMonths(endYM, -36)];
+
+  // ---- tiles
+  function renderTiles() {
+    const box = document.getElementById("tiles"); box.replaceChildren();
+    const nbs = state.sel.length ? state.sel : NB.map((_, i) => i);
+    const cur = windowStats(nbs, ...t12), prev = windowStats(nbs, ...p12);
+    const name = state.sel.length ? state.sel.map(i => NB[i].name).join(" + ") : "All 13";
+    const yoy = cur.ppsf && prev.ppsf ? cur.ppsf / prev.ppsf - 1 : null;
+    const tiles = [
+      ["Median price", fmtK(cur.price || 0), "last 12 months"],
+      ["Median $ / sq ft", fmt$(cur.ppsf), "above-grade, last 12 months"],
+      ["$ / sq ft vs. prior year", fmtPct(yoy), `prior 12 months ${fmt$(prev.ppsf)}`, yoy],
+      ["Sales", cur.n.toLocaleString(), `last 12 months (prior: ${prev.n.toLocaleString()})`],
+    ];
+    for (const [label, value, sub, sign] of tiles) {
+      const t = el("div", { class: "tile" });
+      t.append(el("div", { class: "label" }, label));
+      const v = el("div", { class: "value num" + (sign == null ? "" : sign > 0 ? " up" : sign < 0 ? " down" : "") }, value);
+      t.append(v, el("div", { class: "sub" }, sub));
+      box.append(t);
+    }
+    box.firstChild.querySelector(".sub").textContent = name.length > 40 ? `${state.sel.length} neighborhoods, last 12 months` : `${name}, last 12 months`;
+  }
+
+  // ---- chart
+  function series(nb) {
+    const start = startYM(), pts = [];
+    const byMonth = new Map();
+    for (const s of sales) if (s.nb === nb && eligible(s)) { const k = s.ym; if (!byMonth.has(k)) byMonth.set(k, []); byMonth.get(k).push(adj(s)); }
+    for (let ym = start; ym <= endYM; ym = addMonths(ym, 1)) {
+      const pool = [...(byMonth.get(addMonths(ym, -2)) || []), ...(byMonth.get(addMonths(ym, -1)) || []), ...(byMonth.get(ym) || [])];
+      pts.push({ ym, v: pool.length >= 5 ? median(pool) : null, n: pool.length });
+    }
+    return pts;
+  }
+
+  function renderChart() {
+    const box = document.getElementById("chart"), tip = document.getElementById("tip");
+    box.querySelectorAll("svg").forEach(n => n.remove());
+    document.getElementById("chartTitle").textContent = (state.metric === "ppsf" ? "Median $ / sq ft" : "Median sale price") + (state.dollars === "real" ? " (today's dollars)" : "");
+    const legend = document.getElementById("legend"); legend.replaceChildren();
+    const lines = state.sel.map(nb => ({ nb, color: css(SLOTS[state.color[nb]]), pts: series(nb) }));
+    for (const l of lines) { const sp = el("span"); const i = el("i"); i.style.background = l.color; sp.append(i, document.createTextNode(NB[l.nb].name)); legend.append(sp); }
+    if (!lines.length) { legend.append(el("span", {}, "No neighborhoods selected")); }
+
+    const W = Math.max(320, box.clientWidth), H = W < 560 ? 240 : 300, m = { t: 8, r: W < 560 ? 12 : 120, b: 26, l: 56 };
+    const months = lines.length ? lines[0].pts.map(p => p.ym) : [];
+    const vals = lines.flatMap(l => l.pts.map(p => p.v).filter(v => v != null));
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (!vals.length) { lo = 0; hi = 1; }
+    const pad = (hi - lo) * 0.08 || hi * 0.1; lo = Math.max(0, lo - pad); hi = hi + pad;
+    const step = niceStep((hi - lo) / 4); lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+    const x = i => m.l + (months.length > 1 ? i / (months.length - 1) : 0) * (W - m.l - m.r);
+    const y = v => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("role", "img"); svg.setAttribute("aria-label", document.getElementById("chartTitle").textContent + " over time; values are in the neighborhood table.");
+    const g = (cls) => { const e = document.createElementNS(NS, "g"); if (cls) e.setAttribute("class", cls); svg.append(e); return e; };
+    const axis = g("axis");
+    for (let v = lo; v <= hi + 1e-9; v += step) {
+      const ln = document.createElementNS(NS, "line"); ln.setAttribute("class", "gridline");
+      ln.setAttribute("x1", m.l); ln.setAttribute("x2", W - m.r); ln.setAttribute("y1", y(v)); ln.setAttribute("y2", y(v)); axis.append(ln);
+      const t = document.createElementNS(NS, "text"); t.setAttribute("x", m.l - 8); t.setAttribute("y", y(v) + 4); t.setAttribute("text-anchor", "end");
+      t.textContent = state.metric === "ppsf" ? "$" + Math.round(v) : fmtK(v); axis.append(t);
+    }
+    const years = [...new Set(months.map(ym => ym.slice(0, 4)))];
+    const every = years.length > 8 ? 2 : 1;
+    years.forEach((yr, k) => {
+      const i = months.indexOf(yr + "-01"); if (i < 0 || k % every) return;
+      const t = document.createElementNS(NS, "text"); t.setAttribute("x", x(i)); t.setAttribute("y", H - 6); t.setAttribute("text-anchor", "middle"); t.textContent = yr; axis.append(t);
+    });
+    if (state.range === "1") months.forEach((ym, i) => { if (i % 3) return; const t = document.createElementNS(NS, "text"); t.setAttribute("x", x(i)); t.setAttribute("y", H - 6); t.setAttribute("text-anchor", "middle"); t.textContent = new Date(ym + "-15").toLocaleDateString("en-US", { month: "short" }); axis.append(t); });
+
+    const gl = g();
+    const labels = [];
+    for (const l of lines) {
+      let d = "", pen = false;
+      l.pts.forEach((p, i) => { if (p.v == null) { pen = false; return; } d += (pen ? "L" : "M") + x(i).toFixed(1) + "," + y(p.v).toFixed(1); pen = true; });
+      const path = document.createElementNS(NS, "path"); path.setAttribute("class", "line"); path.setAttribute("d", d); path.setAttribute("stroke", l.color); gl.append(path);
+      const lastI = l.pts.map(p => p.v != null).lastIndexOf(true);
+      if (lastI >= 0 && m.r > 60) labels.push({ y: y(l.pts[lastI].v), x: x(lastI), text: NB[l.nb].name, color: l.color });
+    }
+    labels.sort((a, b) => a.y - b.y); for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 14);
+    for (const lb of labels) { const t = document.createElementNS(NS, "text"); t.setAttribute("class", "endlabel"); t.setAttribute("x", lb.x + 8); t.setAttribute("y", lb.y + 4); t.textContent = lb.text; gl.append(t); }
+
+    const cross = document.createElementNS(NS, "line"); cross.setAttribute("class", "cross"); cross.setAttribute("y1", m.t); cross.setAttribute("y2", H - m.b); cross.style.display = "none"; svg.append(cross);
+    const dots = lines.map(l => { const c = document.createElementNS(NS, "circle"); c.setAttribute("r", 4); c.setAttribute("fill", l.color); c.setAttribute("stroke", css("--surface")); c.setAttribute("stroke-width", 2); c.style.display = "none"; svg.append(c); return c; });
+    const hit = document.createElementNS(NS, "rect"); hit.setAttribute("x", m.l); hit.setAttribute("y", 0); hit.setAttribute("width", W - m.l - m.r + 10); hit.setAttribute("height", H); hit.setAttribute("fill", "transparent"); hit.setAttribute("tabindex", "0"); svg.append(hit);
+    box.insertBefore(svg, tip);
+
+    let focusI = months.length - 1;
+    function show(i) {
+      if (!months.length) return;
+      i = Math.max(0, Math.min(months.length - 1, i)); focusI = i;
+      const scale = box.clientWidth / W;
+      cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.style.display = "";
+      tip.replaceChildren(el("div", { class: "when" }, new Date(months[i] + "-15").toLocaleDateString("en-US", { month: "long", year: "numeric" }) + " · 3-mo window"));
+      lines.forEach((l, k) => {
+        const p = l.pts[i];
+        if (p.v == null) dots[k].style.display = "none"; else { dots[k].style.display = ""; dots[k].setAttribute("cx", x(i)); dots[k].setAttribute("cy", y(p.v)); }
+        const row = el("div", { class: "row" }); const name = el("span"); const key = el("i"); key.style.background = l.color;
+        name.append(key, document.createTextNode(`${NB[l.nb].name} (${p.n})`));
+        row.append(name, el("b", { class: "num" }, p.v == null ? "too few" : (state.metric === "ppsf" ? fmt$(p.v) : fmtK(p.v)))); tip.append(row);
+      });
+      tip.style.display = "block";
+      const px = x(i) * scale, tw = tip.offsetWidth;
+      tip.style.left = (px + 14 + tw > box.clientWidth ? px - tw - 14 : px + 14) + "px"; tip.style.top = "8px";
+    }
+    const hide = () => { tip.style.display = "none"; cross.style.display = "none"; dots.forEach(d => d.style.display = "none"); };
+    hit.addEventListener("pointermove", e => { const r = svg.getBoundingClientRect(); const px = (e.clientX - r.left) / (r.width / W); show(Math.round((px - m.l) / ((W - m.l - m.r) / Math.max(1, months.length - 1)))); });
+    hit.addEventListener("pointerleave", hide); hit.addEventListener("blur", hide);
+    hit.addEventListener("focus", () => show(focusI));
+    hit.addEventListener("keydown", e => { if (e.key === "ArrowLeft") { show(focusI - 1); e.preventDefault(); } if (e.key === "ArrowRight") { show(focusI + 1); e.preventDefault(); } });
+  }
+  function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw))); const f = raw / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p; }
+
+  // ---- neighborhood table
+  let sortKey = null, sortDir = -1;
+  function renderTable() {
+    const t = document.getElementById("nbTable"); t.replaceChildren();
+    const cols = [["Neighborhood", "name"], ["Sales", "n", 1], ["Median price", "price", 1], ["$ / sq ft", "ppsf", 1], ["1-yr", "yoy", 1], ["3-yr", "y3", 1]];
+    const head = el("thead"), hr = el("tr");
+    cols.forEach(([label, key, r]) => { const th = el("th", { class: r ? "r" : "", scope: "col" }, label + (sortKey === key ? (sortDir < 0 ? " ↓" : " ↑") : "")); th.addEventListener("click", () => { sortDir = sortKey === key ? -sortDir : -1; sortKey = key; renderTable(); }); hr.append(th); });
+    head.append(hr); t.append(head);
+    const rows = NB.map((nb, i) => {
+      const c = windowStats([i], ...t12), p = windowStats([i], ...p12), p3 = windowStats([i], ...p36);
+      return { i, name: nb.name, cluster: nb.cluster, n: c.n, price: c.price, ppsf: c.ppsf,
+               yoy: c.ppsf && p.ppsf && c.n >= 8 && p.n >= 8 ? c.ppsf / p.ppsf - 1 : null,
+               y3: c.ppsf && p3.ppsf && c.n >= 8 && p3.n >= 8 ? c.ppsf / p3.ppsf - 1 : null };
+    });
+    const body = el("tbody");
+    const groups = sortKey ? [["", rows]] : [["Northwest", rows.filter(r => r.cluster === "Northwest")], ["Southeast", rows.filter(r => r.cluster === "Southeast")]];
+    if (sortKey) rows.sort((a, b) => { const A = a[sortKey], B = b[sortKey]; if (A == null) return 1; if (B == null) return -1; return (A > B ? 1 : A < B ? -1 : 0) * sortDir; });
+    for (const [label, list] of groups) {
+      if (label) { const tr = el("tr", { class: "cluster" }); const td = el("td", { colspan: 6 }, label); tr.append(td); body.append(tr); }
+      for (const r of list) {
+        const on = state.sel.includes(r.i);
+        const tr = el("tr", { class: "nb", tabindex: "0", "aria-pressed": String(on) });
+        const td0 = el("td"); const sw = el("span", { class: "swatch" });
+        if (on) { sw.style.background = css(SLOTS[state.color[r.i]]); sw.style.borderColor = "transparent"; }
+        td0.append(sw, document.createTextNode(r.name)); tr.append(td0);
+        tr.append(el("td", { class: "r num" }, r.n.toLocaleString()), el("td", { class: "r num" }, r.price ? fmtK(r.price) : "–"), el("td", { class: "r num" }, fmt$(r.ppsf)));
+        for (const v of [r.yoy, r.y3]) tr.append(el("td", { class: "r num " + (v > 0 ? "up" : v < 0 ? "down" : "") }, fmtPct(v)));
+        const toggle = () => {
+          if (on) { state.sel = state.sel.filter(x => x !== r.i); delete state.color[r.i]; }
+          else {
+            if (state.sel.length >= MAX_SEL) { flashLimit(); return; }
+            const used = new Set(Object.values(state.color)); state.color[r.i] = [0, 1, 2, 3].find(k => !used.has(k)); state.sel.push(r.i);
+          }
+          save(); render();
+        };
+        tr.addEventListener("click", toggle); tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+        body.append(tr);
+      }
+    }
+    t.append(body);
+  }
+  function flashLimit() { const h = document.querySelector(".card .hint"); h.textContent = "The chart holds 4 neighborhoods. Remove one first."; setTimeout(() => h.textContent = "Rolling 3-month median. Pick up to 4 neighborhoods in the table below.", 2500); }
+
+  // ---- recent sales
+  function renderRecent() {
+    const t = document.getElementById("recent"); t.replaceChildren();
+    const nbs = state.sel.length ? state.sel : NB.map((_, i) => i);
+    const newest = M.latest_recorded, weekAgo = new Date(new Date(newest + "T12:00") - 7 * 864e5).toISOString().slice(0, 10);
+    const list = sales.filter(s => nbs.includes(s.nb) && eligible(s)).sort((a, b) => (b.rec || b.date).localeCompare(a.rec || a.date)).slice(0, 30);
+    const hdr = ["Recorded", "Sold", "Address", "Neighborhood", "Price", "Sq ft", "$ / sq ft", "Built", "Lot sq ft"];
+    const thead = el("thead"), hr = el("tr"); hdr.forEach((h, k) => hr.append(el("th", { class: k >= 4 ? "r" : "", scope: "col" }, h))); thead.append(hr); t.append(thead);
+    const body = el("tbody");
+    const d = v => v ? new Date(v + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "–";
+    for (const s of list) {
+      const tr = el("tr");
+      const rec = el("td", {}, d(s.rec)); if (s.rec && s.rec > weekAgo) rec.append(el("span", { class: "badge" }, "new"));
+      tr.append(rec, el("td", {}, d(s.date)), el("td", {}, s.addr), el("td", {}, NB[s.nb].name),
+        el("td", { class: "r num" }, fmt$(s.price)), el("td", { class: "r num" }, s.sqft.toLocaleString()),
+        el("td", { class: "r num" }, fmt$(s.price / s.sqft)), el("td", { class: "r num" }, String(s.yb)),
+        el("td", { class: "r num" }, s.lot ? s.lot.toLocaleString() : "–"));
+      body.append(tr);
+    }
+    t.append(body);
+    const fresh = sales.filter(s => nbs.includes(s.nb) && eligible(s) && s.rec && s.rec > weekAgo).length;
+    document.getElementById("recentHint").textContent = `Most recently recorded deeds in ${state.sel.length ? "the selected neighborhoods" : "all 13 neighborhoods"}. ${fresh} recorded in the latest week of data.`;
+  }
+
+  // ---- methodology
+  function renderMethod() {
+    const box = document.getElementById("method"); box.replaceChildren();
+    box.append(el("p", {}, "Source: City and County of Denver open data (assessor sales and transfers, parcels, statistical neighborhood boundaries), refreshed every Monday. Each home is placed in one of Denver's 78 official statistical neighborhoods by its parcel location. Sale records start in 2015; the city's API holds nothing earlier."));
+    const ol = el("ol");
+    M.cleaning.forEach(c => ol.append(el("li", {}, `${c.step}: ${c.rows.toLocaleString()} records`)));
+    box.append(el("p", {}, "Cleaning funnel (arm's-length sales only):"), ol);
+    box.append(el("p", {}, "$ / sq ft uses above-grade finished area, which is how Denver's assessor measures homes; finished basements aren't counted. Square footage and year built describe the house as it stands today, so sales of homes later demolished and rebuilt are excluded, and remodeled homes may show today's size against an older sale."));
+    if (M.beds_mode !== "beds") {
+      box.append(el("div", { class: "warn" }, "Bedroom and bathroom counts aren't available: Denver's residential characteristics table has been truncated to 18,000 homes (none in these neighborhoods) since July 25, 2026. Until the city restores it, the 3+ bed / 2+ bath requirement is approximated by a minimum above-grade size (default 1,400 sq ft). The dashboard switches to true bed and bath filtering automatically once the city's table is complete."));
+    }
+    if (cpi) box.append(el("p", {}, `"Today's $" adjusts each sale by US CPI-U (FRED series CPIAUCSL) to ${cpiKeys[cpiKeys.length - 1]} dollars.`));
+  }
+
+  function render() {
+    out.textContent = state.minSqft ? state.minSqft.toLocaleString() + " sq ft" : "Any";
+    renderTiles(); renderChart(); renderTable(); renderRecent();
+  }
+  renderMethod(); render();
+  let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(renderChart, 150); });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+})();
+</script>
+</body>
+</html>
