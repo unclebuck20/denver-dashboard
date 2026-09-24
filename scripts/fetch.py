@@ -98,6 +98,27 @@ def notice(msg: str):
     print(f"::notice::{msg}", flush=True)
 
 
+HUB_CSV = ("https://opendata-geospatialdenver.hub.arcgis.com/api/download/v1/items/"
+           "db01da756e144b7490139d553a747bc6/csv?redirect=false&layers=59")
+
+
+def residential_from_hub() -> pd.DataFrame | None:
+    """Denver's hub keeps a cached CSV export of the residential table; use it if the live table is short."""
+    import io
+    for _ in range(30):
+        js = S.get(HUB_CSV, timeout=120).json()
+        if js.get("status") == "Completed" and js.get("resultUrl"):
+            r = S.get(js["resultUrl"], timeout=600)
+            r.raise_for_status()
+            df = pd.read_csv(io.BytesIO(r.content), low_memory=False)
+            df.columns = [c.upper() for c in df.columns]
+            print(f"  hub CSV export: {len(df):,} rows, columns: {list(df.columns)[:12]}…", flush=True)
+            return df
+        print(f"  hub export status: {js.get('status')}", flush=True)
+        time.sleep(10)
+    return None
+
+
 def guard(label: str, n: int):
     print(f"  {label}: {n:,} rows", flush=True)
     if n < MIN_ROWS[label]:
@@ -146,7 +167,8 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
 
     # Pre-flight: bail before downloading anything if a table is mid-reload.
-    guard("residential", count(RESCHAR, "1=1"))
+    live_res = count(RESCHAR, "1=1")
+    print(f"  residential (live API): {live_res:,} rows", flush=True)
     guard("sales_citywide", count(SALES, "CLASS='R'"))
     guard("parcels_sfr", count(PARCELS, "D_CLASS_CN LIKE 'SFR%'"))
 
@@ -189,9 +211,22 @@ def main():
     keep = set(pc.PARID.dropna())
 
     print("Residential characteristics…")
-    rc = fetch_all(RESCHAR, "1=1", "PARID,BED_RMS,FULL_B,HLF_B,AREA_ABG,BSMT_AREA,FBSMT_SQFT,STORY,"
-                                    "STYLE_CN,CCYRBLT,LAND_SQFT,ZONE10,D_CLASS_CN,UNITS,TOTAL_VALUE")
+    res_fields = ["PARID", "BED_RMS", "FULL_B", "HLF_B", "AREA_ABG", "BSMT_AREA", "FBSMT_SQFT", "STORY",
+                  "STYLE_CN", "CCYRBLT", "LAND_SQFT", "ZONE10", "D_CLASS_CN", "UNITS", "TOTAL_VALUE"]
+    if live_res >= MIN_ROWS["residential"]:
+        rc = fetch_all(RESCHAR, "1=1", ",".join(res_fields))
+        res_source = "live API"
+    else:
+        rc = residential_from_hub()
+        res_source = "hub CSV export"
+        if rc is None:
+            abort(f"ABORT: residential live table has {live_res:,} rows and the hub export was unavailable")
+        missing_cols = [c for c in res_fields if c not in rc.columns]
+        if missing_cols:
+            abort(f"ABORT: hub CSV missing columns {missing_cols}; has {list(rc.columns)}"[:900])
+        rc = rc[res_fields]
     guard("residential", len(rc))
+    notice(f"Residential characteristics from {res_source}: {len(rc):,} rows")
     rc["PARID"] = rc.PARID.map(parid)
     rc = rc[rc.PARID.isin(keep)]
 
