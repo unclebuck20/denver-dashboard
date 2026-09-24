@@ -89,9 +89,19 @@ def fetch_all(url: str, where: str, fields: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def abort(msg: str):
+    print(f"::error::{msg}", flush=True)  # surfaces as a GitHub annotation
+    sys.exit(1)
+
+
+def notice(msg: str):
+    print(f"::notice::{msg}", flush=True)
+
+
 def guard(label: str, n: int):
+    print(f"  {label}: {n:,} rows", flush=True)
     if n < MIN_ROWS[label]:
-        sys.exit(f"ABORT: {label} has {n:,} rows (< {MIN_ROWS[label]:,}); Denver is likely mid-reload. "
+        abort(f"ABORT: {label} has {n:,} rows (< {MIN_ROWS[label]:,}); Denver is likely mid-reload. "
                  "Keeping previous data.")
 
 
@@ -144,7 +154,7 @@ def main():
     polys = neighborhoods()
     missing = set(TARGETS) - set(polys)
     if missing:
-        sys.exit(f"ABORT: neighborhoods not found: {missing}")
+        abort(f"ABORT: neighborhoods not found: {missing}")
 
     print("Single-family parcels…")
     pc = fetch_all(PARCELS, "D_CLASS_CN LIKE 'SFR%'",
@@ -169,11 +179,13 @@ def main():
     hit = pc.STAT_NBHD.notna().mean()
     print(f"  parcels placed in a neighborhood: {hit:.1%}")
     if hit < 0.95:
-        sys.exit(f"ABORT: only {hit:.1%} of parcels matched a neighborhood; coordinate system mismatch?")
+        abort(f"ABORT: only {hit:.1%} of parcels matched a neighborhood; coordinate system mismatch?")
     pc = pc[pc.STAT_NBHD.isin(TARGETS)].copy()
     pc["CLUSTER"] = pc.STAT_NBHD.map(TARGETS)
     pc["PARID"] = pc.SCHEDNUM.map(parid)
     print(pc.STAT_NBHD.value_counts().to_string())
+    notice(f"{hit:.1%} of SFR parcels matched a neighborhood; target parcels: "
+           + ", ".join(f"{k} {v}" for k, v in pc.STAT_NBHD.value_counts().items()))
     keep = set(pc.PARID.dropna())
 
     print("Residential characteristics…")
@@ -198,9 +210,14 @@ def main():
     pc.drop(columns=["OBJECTID"]).to_csv(OUT / "parcels.csv.gz", index=False)
     rc.drop(columns=["OBJECTID"]).to_csv(OUT / "residential.csv.gz", index=False)
     sales.to_csv(OUT / "sales.csv.gz", index=False)
-    print(f"Done: {len(pc):,} parcels, {len(rc):,} residential records, {len(sales):,} sales "
+    notice(f"Done: {len(pc):,} parcels, {len(rc):,} residential records, {len(sales):,} sales "
           "in the 13 target neighborhoods")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        abort(f"{type(e).__name__}: {e}"[:900])
