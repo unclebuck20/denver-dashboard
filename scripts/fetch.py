@@ -19,13 +19,16 @@ PAGE = 2000
 
 
 def fetch_all(url: str, where: str, fields: str) -> pd.DataFrame:
-    rows, offset = [], 0
+    """Keyset pagination on OBJECTID (offset paging silently stops early on this server)."""
+    rows, last_id = [], -1
     s = requests.Session()
     s.headers["User-Agent"] = "denver-neighborhood-dashboard (personal research)"
+    if fields != "*" and "OBJECTID" not in fields.split(","):
+        fields = "OBJECTID," + fields
     while True:
         params = {
-            "where": where, "outFields": fields, "orderByFields": "OBJECTID",
-            "resultOffset": offset, "resultRecordCount": PAGE, "f": "json",
+            "where": f"({where}) AND OBJECTID>{last_id}", "outFields": fields,
+            "orderByFields": "OBJECTID", "resultRecordCount": PAGE, "f": "json",
         }
         for attempt in range(5):
             try:
@@ -38,14 +41,16 @@ def fetch_all(url: str, where: str, fields: str) -> pd.DataFrame:
             except Exception as e:  # noqa: BLE001
                 if attempt == 4:
                     raise
-                print(f"  retry {attempt + 1} at offset {offset}: {e}", file=sys.stderr)
+                print(f"  retry {attempt + 1} after OBJECTID {last_id}: {e}", file=sys.stderr)
                 time.sleep(3 * (attempt + 1))
         feats = js.get("features", [])
-        rows.extend(f["attributes"] for f in feats)
-        print(f"  {url.split('/')[-4]}: {len(rows):,} rows", flush=True)
-        if not feats or not js.get("exceededTransferLimit", len(feats) == PAGE):
+        if not feats:
             break
-        offset += len(feats)
+        rows.extend(f["attributes"] for f in feats)
+        last_id = max(f["attributes"]["OBJECTID"] for f in feats)
+        if len(rows) % 20000 < PAGE:
+            print(f"  {url.split('/')[-4]}: {len(rows):,} rows", flush=True)
+    print(f"  {url.split('/')[-4]}: {len(rows):,} rows total", flush=True)
     return pd.DataFrame(rows)
 
 
@@ -62,7 +67,7 @@ def last_names(s) -> set:
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
 
-    print("Sales (single-family class R, 2008+)…")
+    print("Sales (single-family class R; API holds 2015+)…")
     sales = fetch_all(SALES, "CLASS='R' AND SALE_YEAR>=2008", "*")
     g, b = sales["GRANTOR"].fillna(""), sales["GRANTEE"].fillna("")
     sales["SELLER_ENTITY"] = g.str.upper().str.contains(ENTITY)
