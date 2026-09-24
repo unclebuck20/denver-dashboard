@@ -10,8 +10,9 @@ Sources (all City and County of Denver open data):
 
 Each parcel is placed in a statistical neighborhood by point-in-polygon on its situs coordinates.
 Buyer/seller names are reduced to flags before anything is written; no personal names are committed.
-Denver reloads some tables nightly; if any table looks partially loaded, the run fails and the
-previous week's data is kept.
+If the parcels or sales tables look partially loaded, the run fails and the previous week's data is kept.
+The residential table (beds/baths) has been truncated on Denver's side since 2026-07-25; when it is
+incomplete the run continues and the dashboard uses a square-footage proxy instead.
 """
 import re
 import sys
@@ -42,7 +43,7 @@ TARGETS = {
 }
 
 # Minimum plausible row counts; below these a table is mid-reload.
-MIN_ROWS = {"parcels_sfr": 100_000, "residential": 150_000, "sales_citywide": 100_000}
+MIN_ROWS = {"parcels_sfr": 100_000, "residential": 150_000, "sales_citywide": 100_000}  # residential: completeness check only
 
 S = requests.Session()
 S.headers["User-Agent"] = "denver-neighborhood-dashboard (personal research)"
@@ -98,27 +99,6 @@ def notice(msg: str):
     print(f"::notice::{msg}", flush=True)
 
 
-HUB_CSV = ("https://opendata-geospatialdenver.hub.arcgis.com/api/download/v1/items/"
-           "db01da756e144b7490139d553a747bc6/csv?redirect=false&layers=59")
-
-
-def residential_from_hub() -> pd.DataFrame | None:
-    """Denver's hub keeps a cached CSV export of the residential table; use it if the live table is short."""
-    import io
-    for _ in range(30):
-        js = S.get(HUB_CSV, timeout=120).json()
-        if js.get("status") == "Completed" and js.get("resultUrl"):
-            r = S.get(js["resultUrl"], timeout=600)
-            r.raise_for_status()
-            df = pd.read_csv(io.BytesIO(r.content), low_memory=False)
-            df.columns = [c.upper() for c in df.columns]
-            print(f"  hub CSV export: {len(df):,} rows, columns: {list(df.columns)[:12]}…", flush=True)
-            return df
-        print(f"  hub export status: {js.get('status')}", flush=True)
-        time.sleep(10)
-    return None
-
-
 def guard(label: str, n: int):
     print(f"  {label}: {n:,} rows", flush=True)
     if n < MIN_ROWS[label]:
@@ -167,8 +147,6 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
 
     # Pre-flight: bail before downloading anything if a table is mid-reload.
-    live_res = count(RESCHAR, "1=1")
-    print(f"  residential (live API): {live_res:,} rows", flush=True)
     guard("sales_citywide", count(SALES, "CLASS='R'"))
     guard("parcels_sfr", count(PARCELS, "D_CLASS_CN LIKE 'SFR%'"))
 
@@ -213,22 +191,17 @@ def main():
     print("Residential characteristics…")
     res_fields = ["PARID", "BED_RMS", "FULL_B", "HLF_B", "AREA_ABG", "BSMT_AREA", "FBSMT_SQFT", "STORY",
                   "STYLE_CN", "CCYRBLT", "LAND_SQFT", "ZONE10", "D_CLASS_CN", "UNITS", "TOTAL_VALUE"]
-    if live_res >= MIN_ROWS["residential"]:
-        rc = fetch_all(RESCHAR, "1=1", ",".join(res_fields))
-        res_source = "live API"
-    else:
-        rc = residential_from_hub()
-        res_source = "hub CSV export"
-        if rc is None:
-            abort(f"ABORT: residential live table has {live_res:,} rows and the hub export was unavailable")
-        missing_cols = [c for c in res_fields if c not in rc.columns]
-        if missing_cols:
-            abort(f"ABORT: hub CSV missing columns {missing_cols}; has {list(rc.columns)}"[:900])
-        rc = rc[res_fields]
-    guard("residential", len(rc))
-    notice(f"Residential characteristics from {res_source}: {len(rc):,} rows")
+    rc = fetch_all(RESCHAR, "1=1", ",".join(res_fields))
     rc["PARID"] = rc.PARID.map(parid)
-    rc = rc[rc.PARID.isin(keep)]
+    res_complete = len(rc) >= MIN_ROWS["residential"]
+    if res_complete:
+        rc = rc[rc.PARID.isin(keep)]
+        notice(f"Residential characteristics complete: {len(rc):,} target parcels with beds/baths")
+    else:
+        # Denver's table has been truncated since 2026-07-25. Keep the partial citywide rows only to
+        # calibrate the square-footage proxy for 3 bed / 2 bath; the build step switches back to true
+        # bed/bath filtering automatically once this file is complete again.
+        notice(f"Residential table incomplete ({len(rc):,} rows); using sqft proxy for beds/baths")
 
     print("Sales…")
     sales = fetch_all(SALES, "CLASS='R'", "*")
@@ -243,7 +216,12 @@ def main():
 
     # Write only after every table passed its checks.
     pc.drop(columns=["OBJECTID"]).to_csv(OUT / "parcels.csv.gz", index=False)
-    rc.drop(columns=["OBJECTID"]).to_csv(OUT / "residential.csv.gz", index=False)
+    rc.drop(columns=["OBJECTID"]).to_csv(
+        OUT / ("residential.csv.gz" if res_complete else "residential_partial.csv.gz"), index=False)
+    if res_complete:
+        (OUT / "residential_partial.csv.gz").unlink(missing_ok=True)
+    else:
+        (OUT / "residential.csv.gz").unlink(missing_ok=True)
     sales.to_csv(OUT / "sales.csv.gz", index=False)
     notice(f"Done: {len(pc):,} parcels, {len(rc):,} residential records, {len(sales):,} sales "
           "in the 13 target neighborhoods")
