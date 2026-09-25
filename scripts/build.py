@@ -131,7 +131,7 @@ def main():
             "built": datetime.now(timezone.utc).isoformat(timespec="minutes"),
             "latest_recorded": s.RECORDED.max().date().isoformat() if s.RECORDED.notna().any() else None,
             "beds_mode": beds_mode,
-            "default_min_sqft": 1400,
+            "default_min_sqft": 0 if beds_mode == "beds" else 1400,
             "cleaning": [{"step": k, "rows": int(v)} for k, v in steps],
             "neighborhoods": [{"name": DISPLAY.get(n, n), "cluster": c,
                                "parcels": int((parcels.STAT_NBHD == n).sum())} for n, c in NEIGHBORHOODS],

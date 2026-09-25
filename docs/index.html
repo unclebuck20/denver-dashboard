@@ -141,6 +141,9 @@ details li { margin: 3px 0; }
     <div class="seg" id="dollars" aria-label="Dollars">
       <button data-v="nominal">Nominal $</button><button data-v="real">Today's $</button>
     </div>
+    <div class="seg" id="homes" aria-label="Homes" hidden>
+      <button data-v="32">3+ bed / 2+ bath</button><button data-v="all">All homes</button>
+    </div>
     <label class="ctl" id="sizectl"><span id="sizelabel">Min above-grade size</span>
       <input type="range" id="minsqft" min="0" max="3000" step="100">
       <output id="minsqftOut" class="num"></output>
@@ -235,8 +238,9 @@ details li { margin: 3px 0; }
   const weekAgo = new Date(new Date(M.latest_recorded + "T12:00") - 7 * 864e5).toISOString().slice(0, 10);
 
   // ---------- state (neighborhoods stored by name so adding neighborhoods never shifts saved picks)
-  const state = { range: "all", metric: "price", dollars: "nominal", minSqft: M.default_min_sqft, view: "sales", sel: [], color: {} };
+  const state = { range: "all", metric: "price", dollars: "nominal", minSqft: M.default_min_sqft, view: "sales", homes: "32", sel: [], color: {}, mode: M.beds_mode };
   try { const saved = JSON.parse(localStorage.getItem("dnsd2") || "null"); if (saved) Object.assign(state, saved); } catch (e) {}
+  if (state.mode !== M.beds_mode) { state.minSqft = M.default_min_sqft; state.homes = "32"; state.mode = M.beds_mode; }
   state.sel = state.sel.filter(n => n in nbByName).slice(0, MAX_SEL);
   for (const k of Object.keys(state.color)) if (!state.sel.includes(k) || state.color[k] > 2) delete state.color[k];
   for (const n of state.sel) if (state.color[n] == null) { const used = new Set(Object.values(state.color)); state.color[n] = [0, 1, 2].find(k => !used.has(k)); }
@@ -249,10 +253,10 @@ details li { margin: 3px 0; }
   document.getElementById("subtitle").textContent =
     `Single-family, arm's-length sales · ${NB.length} neighborhoods · deeds recorded through ${fmtD(M.latest_recorded)} · refreshed ${new Date(M.built).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
   const slider = document.getElementById("minsqft"), out = document.getElementById("minsqftOut");
-  if (M.beds_mode === "beds") document.getElementById("sizelabel").textContent = "3+ bed / 2+ bath · min size";
+  if (M.beds_mode === "beds") document.getElementById("homes").hidden = false;
   slider.value = state.minSqft;
 
-  const eligible = s => s.sqft >= state.minSqft && (M.beds_mode !== "beds" || (s.beds >= 3 && s.baths >= 2));
+  const eligible = s => s.sqft >= state.minSqft && (M.beds_mode !== "beds" || state.homes === "all" || (s.beds >= 3 && s.baths >= 2));
   const dollars = (v, ym) => state.dollars === "real" && cpi ? v * cpiLatest / cpiFor(ym) : v;
   const val = s => state.metric === "ppsf" ? dollars(s.price, s.ym) / s.sqft : dollars(s.price, s.ym);
   const fmtVal = v => state.metric === "ppsf" ? fmt$(v) : fmtK(v);
@@ -269,6 +273,7 @@ details li { margin: 3px 0; }
     bindSeg(document.getElementById("range"), "range", render),
     bindSeg(document.getElementById("metric"), "metric", render),
     bindSeg(document.getElementById("dollars"), "dollars", render),
+    bindSeg(document.getElementById("homes"), "homes", render),
     ...[...document.querySelectorAll(".viewseg")].map(r => bindSeg(r, "view", render)),
   ];
   if (!cpi) { const b = document.querySelector('#dollars [data-v="real"]'); b.disabled = true; b.title = "Inflation data unavailable this refresh"; }
@@ -303,16 +308,25 @@ details li { margin: 3px 0; }
   }
 
   // ---------- chart (shared by overview and detail)
+  // Rolling median; the window widens for thin neighborhoods so the line stays readable.
+  function trendWindow(nb) {
+    const n = sales.filter(s => s.nb === nb && eligible(s) && inRange(s)).length;
+    let months = 0; for (let ym = startYM(); ym <= endYM; ym = addMonths(ym, 1)) months++;
+    const rate = n / Math.max(1, months);
+    return rate >= 4 ? 3 : rate >= 1.5 ? 6 : 12;
+  }
   function trendSeries(nb) {
+    const w = trendWindow(nb);
     const byMonth = new Map();
     for (const s of sales) if (s.nb === nb && eligible(s)) { if (!byMonth.has(s.ym)) byMonth.set(s.ym, []); byMonth.get(s.ym).push(val(s)); }
     const pts = [];
     for (let ym = startYM(); ym <= endYM; ym = addMonths(ym, 1)) {
-      const pool = [...(byMonth.get(addMonths(ym, -2)) || []), ...(byMonth.get(addMonths(ym, -1)) || []), ...(byMonth.get(ym) || [])];
-      pts.push({ ym, t: Date.parse(ym + "-15T12:00"), v: pool.length >= 5 ? median(pool) : null, n: pool.length });
+      const pool = []; for (let k = 0; k < w; k++) pool.push(...(byMonth.get(addMonths(ym, -k)) || []));
+      pts.push({ ym, t: Date.parse(ym + "-15T12:00"), v: pool.length >= 5 ? median(pool) : null, n: pool.length, w });
     }
     return pts;
   }
+  const windowText = lines => { const ws = [...new Set(lines.map(l => l.pts[0]?.w || 3))]; return ws.length === 1 ? `${ws[0]}-month` : "rolling"; };
   function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw))); const f = raw / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p; }
   function quantile(a, q) { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(q * s.length))]; }
 
@@ -331,10 +345,10 @@ details li { margin: 3px 0; }
 
     if (state.view === "sales") {
       titleEl.textContent = `Every sale · ${measure}${real}`;
-      hintEl.textContent = `${dots.length.toLocaleString()} sales, one dot each. The line is the rolling 3-month median. Hover a dot for the address${onPick ? "; click it to find it in the table" : ""}.`;
+      hintEl.textContent = `${dots.length.toLocaleString()} sales, one dot each. The line is the ${windowText(lines)} rolling median${windowText(lines) === "rolling" ? " (window widens for neighborhoods with fewer sales)" : ""}. Hover a dot for the address${onPick ? "; click it to find it in the table" : ""}.`;
     } else {
       titleEl.textContent = `Median ${measure.toLowerCase()}${real}`;
-      hintEl.textContent = "Rolling 3-month median; gaps where a window has fewer than 5 sales.";
+      hintEl.textContent = `${windowText(lines) === "rolling" ? "Rolling median (3, 6 or 12 months, wider for neighborhoods with fewer sales)" : `Rolling ${windowText(lines)} median`}; gaps where a window has fewer than 5 sales.`;
     }
     for (const l of lines) {
       const sp = el("span"); const i = el("i", { class: state.view === "sales" ? "dot" : "ln" }); i.style.background = l.color;
@@ -420,12 +434,12 @@ details li { margin: 3px 0; }
       const idx = Math.max(0, Math.min(lines[0].pts.length - 1, Math.round((t - lines[0].pts[0].t) / (30.44 * 864e5))));
       const p0 = lines[0].pts[idx]; if (!p0) return;
       cross.setAttribute("x1", x(p0.t)); cross.setAttribute("x2", x(p0.t)); cross.style.display = "";
-      tip.replaceChildren(el("div", { class: "when" }, new Date(p0.t).toLocaleDateString("en-US", { month: "long", year: "numeric" }) + " · 3-month window"));
+      tip.replaceChildren(el("div", { class: "when" }, new Date(p0.t).toLocaleDateString("en-US", { month: "long", year: "numeric" }) + ` · ${lines[0].pts[idx].w}-month window`));
       lines.forEach((l, k) => {
         const p = l.pts[idx];
         if (p.v == null) hdots[k].style.display = "none"; else { hdots[k].style.display = ""; hdots[k].setAttribute("cx", x(p.t)); hdots[k].setAttribute("cy", y(p.v)); }
         const row = el("div", { class: "row" }), name = el("span"), key = el("i"); key.style.background = l.color;
-        name.append(key, document.createTextNode(`${NB[l.nb].name} (${p.n} sales)`));
+        name.append(key, document.createTextNode(`${NB[l.nb].name} (${p.n} sales${l.pts[idx].w !== lines[0].pts[idx].w ? `, ${l.pts[idx].w} mo` : ""})`));
         row.append(name, el("b", { class: "num" }, p.v == null ? "too few" : fmtVal(p.v))); tip.append(row);
       });
       place(x(p0.t), m.t + 40);
@@ -556,7 +570,7 @@ details li { margin: 3px 0; }
     const all = sales.filter(s => s.nb === detail.nb && inRange(s)).length;
     const hidden = all - sales.filter(s => s.nb === detail.nb && inRange(s) && eligible(s)).length;
     const hint = document.getElementById("dTableHint"); hint.replaceChildren(document.createTextNode(`${rows.length.toLocaleString()} sales${detail.q ? ` matching "${detail.q}"` : ""}, ${state.range === "all" ? "since 2015" : `last ${state.range} yr`}. Click a column to sort. `));
-    if (hidden > 0) { const b = el("button", { class: "linkbtn" }, `Include ${hidden.toLocaleString()} smaller homes`); b.addEventListener("click", () => { state.minSqft = 0; slider.value = 0; save(); render(); }); hint.append(b); }
+    if (hidden > 0) { const b = el("button", { class: "linkbtn" }, `Include ${hidden.toLocaleString()} other single-family sales`); b.addEventListener("click", () => { state.minSqft = 0; slider.value = 0; state.homes = "all"; save(); render(); }); hint.append(b); }
     if (detail.flash != null) {
       const row = t.querySelector(`tr[data-id="${detail.flash}"]`);
       if (row) { row.classList.add("flash"); row.scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => row.classList.remove("flash"), 2200); }
