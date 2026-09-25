@@ -159,7 +159,9 @@ def main():
             g = shape(f["geometry"]).simplify(0.00003, preserve_topology=True)
             geom = json.loads(json.dumps(mapping(g)), parse_float=lambda v: round(float(v), 5))
             name = f["properties"]["NBHD_NAME"]
-            feats.append({"type": "Feature", "properties": {"name": DISPLAY.get(name, name)}, "geometry": geom})
+            lp = g.representative_point()  # always inside the polygon, unlike a vertex average
+            feats.append({"type": "Feature", "properties": {"name": DISPLAY.get(name, name),
+                                                            "label": [round(lp.x, 5), round(lp.y, 5)]}, "geometry": geom})
         (DOCS / "neighborhoods.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats},
                                                                separators=(",", ":")))
     for k, v in steps:
