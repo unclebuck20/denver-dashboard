@@ -15,6 +15,7 @@ table is complete, otherwise by an above-grade square-footage threshold the view
 """
 import io
 import json
+import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -61,6 +62,29 @@ def sale_date(year, monthday) -> date | None:
         return date(int(year), md // 100, md % 100)
     except (ValueError, TypeError):
         return None
+
+
+def guard_against_regression(out: dict):
+    """Refuse to publish if this build lost a big share of the sales the live site already shows.
+    A sudden drop almost always means a source table was mid-reload or a filter broke, not a real change."""
+    prev_path = DOCS / "data.json"
+    if not prev_path.exists():
+        return
+    try:
+        prev = json.loads(prev_path.read_text())
+    except ValueError:
+        return
+    prev_n, new_n = len(prev.get("sales", [])), len(out["sales"])
+    prev_nb = len(prev.get("meta", {}).get("neighborhoods", []))
+    new_nb = len(out["meta"]["neighborhoods"])
+    if new_nb >= prev_nb and prev_n and new_n < prev_n * 0.9:
+        print(f"::error::Clean sales fell from {prev_n:,} to {new_n:,} (>10%). Not publishing; "
+              "previous data stays live. Check the fetch notices for a partial source table.", flush=True)
+        sys.exit(1)
+    lost = set(prev.get("meta", {}).get("columns", [])) - set(out["meta"]["columns"])
+    if lost - {"beds", "baths"}:  # beds/baths legitimately drop out when Denver's table is truncated
+        print(f"::error::Columns disappeared from data.json: {sorted(lost)}. Not publishing.", flush=True)
+        sys.exit(1)
 
 
 def main():
@@ -150,6 +174,7 @@ def main():
         "sales": rows,
     }
     DOCS.mkdir(exist_ok=True)
+    guard_against_regression(out)
     (DOCS / "data.json").write_text(json.dumps(out, separators=(",", ":")))
     boundaries = RAW / "neighborhoods.geojson"
     if boundaries.exists():

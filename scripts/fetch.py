@@ -11,8 +11,9 @@ Sources (all City and County of Denver open data):
 Each parcel is placed in a statistical neighborhood by point-in-polygon on its situs coordinates.
 Buyer/seller names are reduced to flags before anything is written; no personal names are committed.
 If the parcels or sales tables look partially loaded, the run fails and the previous week's data is kept.
-The residential table (beds/baths) has been truncated on Denver's side since 2026-07-25; when it is
-incomplete the run continues and the dashboard uses a square-footage proxy instead.
+The residential table (beds/baths) was truncated on Denver's side from 2026-07-25 to 2026-09-24. When it
+is incomplete the run continues, keeps the partial rows, and the dashboard falls back to a square-footage
+proxy for 3 bed / 2 bath; it switches back automatically once the table is complete.
 """
 import json
 import re

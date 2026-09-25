@@ -232,55 +232,36 @@ a.addr:hover .ext { color: var(--accent); }
   </details>
 </div>
 
+<script src="js/common.js"></script>
 <script>
 (async function () {
+  const { PRICE_CAP, el, css, fmt$, fmtK, fmtPct, fmtD, slug, median, addMonths, zillow } = DNSD;
   const SLOTS = ["--s1", "--s2", "--s3"];
   const MAX_SEL = 3;
-  const PRICE_CAP = 5000000; // top of the price slider = no maximum
   const PAGE = 50;
-  const fmt$ = v => v == null || !isFinite(v) ? "–" : "$" + Math.round(v).toLocaleString("en-US");
-  const fmtK = v => v == null ? "–" : v >= 1e6 ? "$" + (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + "M" : "$" + Math.round(v / 1e3) + "K";
-  const fmtPct = v => v == null || !isFinite(v) ? "–" : (v > 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
-  const fmtD = v => v ? new Date(v + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "–";
-  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-  const el = (tag, attrs = {}, text) => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
   const NS = "http://www.w3.org/2000/svg";
   const sv = (tag, attrs = {}) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
-  const median = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
-  const slug = n => n.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
-  const data = await (await fetch("data.json", { cache: "no-cache" })).json();
-  const M = data.meta, ix = Object.fromEntries(M.columns.map((c, i) => [c, i]));
+  const { meta: M, cpi, sales } = await DNSD.loadData();
   const NB = M.neighborhoods;
   const nbByName = Object.fromEntries(NB.map((n, i) => [n.name, i]));
-  const cpi = data.cpi, cpiKeys = cpi ? Object.keys(cpi).sort() : [];
+  const cpiKeys = cpi ? Object.keys(cpi).sort() : [];
   const cpiLatest = cpi ? cpi[cpiKeys[cpiKeys.length - 1]] : null;
   const cpiFor = ym => cpi ? (cpi[ym] || cpiLatest) : null;
 
-  const sales = data.sales.map((r, id) => ({
-    id, date: r[ix.date], ym: r[ix.date].slice(0, 7), t: Date.parse(r[ix.date] + "T12:00"), nb: r[ix.nbhd], price: r[ix.price], sqft: r[ix.sqft],
-    yb: r[ix.year_built], lot: r[ix.lot_sqft], zone: r[ix.zone], addr: r[ix.address], rec: r[ix.recorded],
-    beds: ix.beds != null ? r[ix.beds] : null, baths: ix.baths != null ? r[ix.baths] : null,
-    zip: ix.zip != null ? r[ix.zip] : "",
-  }));
-  // Zillow resolves an address search URL to the home's page (or a map pin when it can't match one).
-  const zillow = s => "https://www.zillow.com/homes/" +
-    encodeURIComponent(`${s.addr}, Denver, CO${s.zip ? " " + s.zip : ""}`.replace(/,/g, "").replace(/\s+/g, "-")).replace(/%2D/g, "-") + "_rb/";
   const addrCell = s => { const td = el("td"); const a = el("a", { href: zillow(s), target: "_blank", rel: "noopener", class: "addr", title: "Open on Zillow" }, s.addr); a.append(el("span", { class: "ext", "aria-hidden": "true" }, " ↗")); td.append(a); return td; };
   const lastDate = sales.reduce((m, s) => s.date > m ? s.date : m, "0");
   const endYM = lastDate.slice(0, 7);
   const weekAgo = new Date(new Date(M.latest_recorded + "T12:00") - 7 * 864e5).toISOString().slice(0, 10);
 
   // ---------- state (neighborhoods stored by name so adding neighborhoods never shifts saved picks)
-  const state = { range: "all", metric: "price", dollars: "nominal", minSqft: M.default_min_sqft, view: "sales", homes: "32", priceLo: 0, priceHi: PRICE_CAP, sel: [], color: {}, mode: M.beds_mode };
-  try { const saved = JSON.parse(localStorage.getItem("dnsd2") || "null"); if (saved) Object.assign(state, saved); } catch (e) {}
-  if (state.mode !== M.beds_mode) { state.minSqft = M.default_min_sqft; state.homes = "32"; state.mode = M.beds_mode; }
+  const state = DNSD.loadState({ range: "all", metric: "price", dollars: "nominal", minSqft: M.default_min_sqft, view: "sales", homes: "32", priceLo: 0, priceHi: PRICE_CAP, sel: [], color: {}, mode: M.beds_mode }, M);
   state.sel = state.sel.filter(n => n in nbByName).slice(0, MAX_SEL);
   for (const k of Object.keys(state.color)) if (!state.sel.includes(k) || state.color[k] > 2) delete state.color[k];
   for (const n of state.sel) if (state.color[n] == null) { const used = new Set(Object.values(state.color)); state.color[n] = [0, 1, 2].find(k => !used.has(k)); }
   if (!state.sel.length) { state.sel = ["Washington Park", "West Highland"]; state.color = { "Washington Park": 0, "West Highland": 1 }; }
   if (!cpi) state.dollars = "nominal";
-  const save = () => { try { localStorage.setItem("dnsd2", JSON.stringify(state)); } catch (e) {} };
+  const save = () => DNSD.saveState(state);
   const detail = { nb: null, sortKey: "date", sortDir: -1, q: "", shown: PAGE, flash: null };
 
   // ---------- header + controls
@@ -295,7 +276,6 @@ a.addr:hover .ext { color: var(--accent); }
   const dollars = (v, ym) => state.dollars === "real" && cpi ? v * cpiLatest / cpiFor(ym) : v;
   const val = s => state.metric === "ppsf" ? dollars(s.price, s.ym) / s.sqft : dollars(s.price, s.ym);
   const fmtVal = v => state.metric === "ppsf" ? fmt$(v) : fmtK(v);
-  const addMonths = (ym, k) => { let [y, m] = ym.split("-").map(Number); m += k; y += Math.floor((m - 1) / 12); m = ((m - 1) % 12 + 12) % 12 + 1; return `${y}-${String(m).padStart(2, "0")}`; };
   const startYM = () => state.range === "all" ? "2015-01" : addMonths(endYM, -12 * Number(state.range) + 1);
   const inRange = s => s.ym >= startYM();
 

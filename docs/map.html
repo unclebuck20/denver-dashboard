@@ -165,44 +165,30 @@ a { color: var(--accent); }
   <div class="mobilebar"><button id="toggleView">List</button></div>
 
 <script src="vendor/maplibre-gl.js"></script>
+<script src="js/common.js"></script>
 <script>
 (async function () {
-  const PRICE_CAP = 5000000, PAGE = 60, PIN_ZOOM = 14.5, MAX_PINS = 450;
-  const el = (tag, attrs = {}, text) => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
-  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-  const fmt$ = v => v == null ? "–" : "$" + Math.round(v).toLocaleString("en-US");
-  const fmtK = v => v == null ? "–" : v >= 1e6 ? "$" + (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + "M" : "$" + Math.round(v / 1e3) + "K";
+  const { PRICE_CAP, el, css, dark, fmt$, fmtK, fmtD, slug, addMonths, zillow } = DNSD;
+  const PAGE = 60, PIN_ZOOM = 14.5, MAX_PINS = 450;
   const pinK = v => v >= 1e6 ? "$" + (v / 1e6).toFixed(v >= 1e7 ? 0 : 2).replace(/0$/, "") + "M" : "$" + Math.round(v / 1e3) + "K";
-  const fmtD = v => v ? new Date(v + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "–";
-  const slug = n => n.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const dark = () => matchMedia("(prefers-color-scheme: dark)").matches;
 
-  const [data, bounds] = await Promise.all([
-    fetch("data.json", { cache: "no-cache" }).then(r => r.json()),
+  const [loaded, bounds] = await Promise.all([
+    DNSD.loadData(),
     fetch("neighborhoods.geojson", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
-  const M = data.meta, ix = Object.fromEntries(M.columns.map((c, i) => [c, i]));
-  const NB = M.neighborhoods;
-  if (ix.lat == null) { document.getElementById("list").append(el("p", { class: "empty" }, "Map data is still building. Check back after the next refresh.")); return; }
-  const sales = data.sales.map((r, id) => ({
-    id, date: r[ix.date], ym: r[ix.date].slice(0, 7), nb: r[ix.nbhd], price: r[ix.price], sqft: r[ix.sqft], yb: r[ix.year_built], lot: r[ix.lot_sqft],
-    zone: r[ix.zone], addr: r[ix.address], rec: r[ix.recorded], beds: ix.beds != null ? r[ix.beds] : null, baths: ix.baths != null ? r[ix.baths] : null,
-    zip: r[ix.zip] || "", pid: r[ix.pid], lat: r[ix.lat], lon: r[ix.lon],
-  })).filter(s => s.lat != null);
+  const M = loaded.meta, NB = M.neighborhoods;
+  if (!loaded.hasColumn("lat")) { document.getElementById("list").append(el("p", { class: "empty" }, "Map data is still building. Check back after the next refresh.")); return; }
+  const sales = loaded.sales.filter(s => s.lat != null);
   const byHome = new Map(); for (const s of sales) { if (!byHome.has(s.pid)) byHome.set(s.pid, []); byHome.get(s.pid).push(s); }
   for (const h of byHome.values()) h.sort((a, b) => b.date.localeCompare(a.date));
   const lastDate = sales.reduce((m, s) => s.date > m ? s.date : m, "0"), endYM = lastDate.slice(0, 7);
-  const zillow = s => "https://www.zillow.com/homes/" + encodeURIComponent(`${s.addr}, Denver, CO${s.zip ? " " + s.zip : ""}`.replace(/,/g, "").replace(/\s+/g, "-")).replace(/%2D/g, "-") + "_rb/";
 
   // ---------- state (shared filter keys with the dashboard)
-  const state = { range: "all", homes: "32", minSqft: M.default_min_sqft, priceLo: 0, priceHi: PRICE_CAP, mapColor: "price", mapBase: "map", mapNb: "", mapSort: "new", mode: M.beds_mode };
-  try { const saved = JSON.parse(localStorage.getItem("dnsd2") || "null"); if (saved) for (const k of Object.keys(state)) if (k in saved) state[k] = saved[k]; } catch (e) {}
-  if (state.mode !== M.beds_mode) { state.minSqft = M.default_min_sqft; state.homes = "32"; state.mode = M.beds_mode; }
-  const save = () => { try { const cur = JSON.parse(localStorage.getItem("dnsd2") || "{}"); localStorage.setItem("dnsd2", JSON.stringify({ ...cur, ...state })); } catch (e) {} };
+  const state = DNSD.loadState({ range: "all", homes: "32", minSqft: M.default_min_sqft, priceLo: 0, priceHi: PRICE_CAP, mapColor: "price", mapBase: "map", mapNb: "", mapSort: "new", mode: M.beds_mode }, M);
+  const save = () => DNSD.saveState(state);
   const hashNb = (location.hash.match(/n=([a-z0-9-]+)/) || [])[1];
   if (hashNb) { const i = NB.findIndex(n => slug(n.name) === hashNb); state.mapNb = i >= 0 ? String(i) : ""; }
 
-  const addMonths = (ym, k) => { let [y, m] = ym.split("-").map(Number); m += k; y += Math.floor((m - 1) / 12); m = ((m - 1) % 12 + 12) % 12 + 1; return `${y}-${String(m).padStart(2, "0")}`; };
   const startYM = () => state.range === "all" ? "2015-01" : addMonths(endYM, -12 * Number(state.range) + 1);
   const eligible = s => s.ym >= startYM() && s.sqft >= state.minSqft && s.price >= state.priceLo && (state.priceHi >= PRICE_CAP || s.price <= state.priceHi)
     && (M.beds_mode !== "beds" || state.homes === "all" || (s.beds >= 3 && s.baths >= 2)) && (state.mapNb === "" || s.nb === Number(state.mapNb));

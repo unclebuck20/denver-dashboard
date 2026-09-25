@@ -1,0 +1,5 @@
+# Pinned to the versions the pipeline was last verified with. Bump deliberately, then re-run locally.
+pandas==3.0.2
+requests==2.33.1
+shapely==2.1.2
+pyproj==3.7.2
