@@ -26,6 +26,8 @@ import requests
 from shapely.geometry import Point, Polygon
 from shapely.prepared import prep
 
+from config import TARGETS
+
 BASE = "https://services1.arcgis.com/zdB7qR0BtYrg0Xpl/arcgis/rest/services"
 SALES = f"{BASE}/ODC_real_property_sales_and_transfers/FeatureServer/60/query"
 RESCHAR = f"{BASE}/ODC_real_property_residential_characteristics/FeatureServer/59/query"
@@ -35,16 +37,6 @@ OUT = Path(__file__).resolve().parent.parent / "data" / "raw"
 PAGE = 2000
 STATE_PLANE = 2232  # NAD83 / Colorado Central (ftUS), the SR of SITUS_X/Y_COORD
 
-TARGETS = {
-    # statistical neighborhood name -> cluster
-    "Berkeley": "Northwest", "Sunnyside": "Northwest", "West Highland": "Northwest",
-    "Highland": "Northwest", "Sloan Lake": "Northwest",
-    "City Park West": "Central", "City Park": "Central", "Congress Park": "Central",
-    "Cheesman Park": "Central", "Cherry Creek": "Central",
-    "Washington Park West": "Southeast", "Washington Park": "Southeast", "Platt Park": "Southeast",
-    "University": "Southeast", "University Park": "Southeast", "Cory - Merrill": "Southeast",
-    "Belcaro": "Southeast",
-}
 
 # Minimum plausible row counts; below these a table is mid-reload.
 MIN_ROWS = {"parcels_sfr": 100_000, "residential": 150_000, "sales_citywide": 100_000}  # residential: completeness check only
@@ -156,6 +148,9 @@ def main():
 
     print("Neighborhood boundaries…")
     polys = neighborhoods()
+    # Keep the official list of all names in the repo so config.py edits can be checked against it.
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "all_neighborhoods.txt").write_text("\n".join(sorted(polys)) + "\n")
     missing = set(TARGETS) - set(polys)
     if missing:
         abort(f"ABORT: neighborhoods not found: {missing}")
