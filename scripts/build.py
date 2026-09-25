@@ -25,12 +25,14 @@ ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
 DOCS = ROOT / "docs"
 
-NEIGHBORHOODS = [  # display order: Northwest then Southeast
+NEIGHBORHOODS = [  # display order: Northwest, Central, Southeast
     ("Berkeley", "Northwest"), ("Sunnyside", "Northwest"), ("West Highland", "Northwest"),
     ("Highland", "Northwest"), ("Sloan Lake", "Northwest"),
+    ("City Park West", "Central"), ("City Park", "Central"), ("Congress Park", "Central"),
+    ("Cheesman Park", "Central"), ("Cherry Creek", "Central"),
     ("Washington Park West", "Southeast"), ("Washington Park", "Southeast"), ("Platt Park", "Southeast"),
     ("University", "Southeast"), ("University Park", "Southeast"), ("Cory - Merrill", "Southeast"),
-    ("Belcaro", "Southeast"), ("Cheesman Park", "Southeast"),
+    ("Belcaro", "Southeast"),
 ]
 DISPLAY = {"Cory - Merrill": "Cory-Merrill"}
 MARKET_DEEDS = {"WD", "SW", "GW", "PR"}

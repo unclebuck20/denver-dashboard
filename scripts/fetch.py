@@ -1,4 +1,4 @@
-"""Pull Denver single-family sales for 13 target neighborhoods from the city's ArcGIS REST API.
+"""Pull Denver single-family sales for 17 target neighborhoods from the city's ArcGIS REST API.
 
 Runs in GitHub Actions (Denver's servers are reachable there). Writes gzipped CSVs to data/raw/.
 
@@ -10,8 +10,9 @@ Sources (all City and County of Denver open data):
 
 Each parcel is placed in a statistical neighborhood by point-in-polygon on its situs coordinates.
 Buyer/seller names are reduced to flags before anything is written; no personal names are committed.
-Denver reloads some tables nightly; if any table looks partially loaded, the run fails and the
-previous week's data is kept.
+If the parcels or sales tables look partially loaded, the run fails and the previous week's data is kept.
+The residential table (beds/baths) has been truncated on Denver's side since 2026-07-25; when it is
+incomplete the run continues and the dashboard uses a square-footage proxy instead.
 """
 import re
 import sys
@@ -36,13 +37,15 @@ TARGETS = {
     # statistical neighborhood name -> cluster
     "Berkeley": "Northwest", "Sunnyside": "Northwest", "West Highland": "Northwest",
     "Highland": "Northwest", "Sloan Lake": "Northwest",
+    "City Park West": "Central", "City Park": "Central", "Congress Park": "Central",
+    "Cheesman Park": "Central", "Cherry Creek": "Central",
     "Washington Park West": "Southeast", "Washington Park": "Southeast", "Platt Park": "Southeast",
     "University": "Southeast", "University Park": "Southeast", "Cory - Merrill": "Southeast",
-    "Belcaro": "Southeast", "Cheesman Park": "Southeast",
+    "Belcaro": "Southeast",
 }
 
 # Minimum plausible row counts; below these a table is mid-reload.
-MIN_ROWS = {"parcels_sfr": 100_000, "residential": 150_000, "sales_citywide": 100_000}
+MIN_ROWS = {"parcels_sfr": 100_000, "residential": 150_000, "sales_citywide": 100_000}  # residential: completeness check only
 
 S = requests.Session()
 S.headers["User-Agent"] = "denver-neighborhood-dashboard (personal research)"
@@ -89,9 +92,19 @@ def fetch_all(url: str, where: str, fields: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def abort(msg: str):
+    print(f"::error::{msg}", flush=True)  # surfaces as a GitHub annotation
+    sys.exit(1)
+
+
+def notice(msg: str):
+    print(f"::notice::{msg}", flush=True)
+
+
 def guard(label: str, n: int):
+    print(f"  {label}: {n:,} rows", flush=True)
     if n < MIN_ROWS[label]:
-        sys.exit(f"ABORT: {label} has {n:,} rows (< {MIN_ROWS[label]:,}); Denver is likely mid-reload. "
+        abort(f"ABORT: {label} has {n:,} rows (< {MIN_ROWS[label]:,}); Denver is likely mid-reload. "
                  "Keeping previous data.")
 
 
@@ -136,7 +149,6 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
 
     # Pre-flight: bail before downloading anything if a table is mid-reload.
-    guard("residential", count(RESCHAR, "1=1"))
     guard("sales_citywide", count(SALES, "CLASS='R'"))
     guard("parcels_sfr", count(PARCELS, "D_CLASS_CN LIKE 'SFR%'"))
 
@@ -144,7 +156,7 @@ def main():
     polys = neighborhoods()
     missing = set(TARGETS) - set(polys)
     if missing:
-        sys.exit(f"ABORT: neighborhoods not found: {missing}")
+        abort(f"ABORT: neighborhoods not found: {missing}")
 
     print("Single-family parcels…")
     pc = fetch_all(PARCELS, "D_CLASS_CN LIKE 'SFR%'",
@@ -169,19 +181,29 @@ def main():
     hit = pc.STAT_NBHD.notna().mean()
     print(f"  parcels placed in a neighborhood: {hit:.1%}")
     if hit < 0.95:
-        sys.exit(f"ABORT: only {hit:.1%} of parcels matched a neighborhood; coordinate system mismatch?")
+        abort(f"ABORT: only {hit:.1%} of parcels matched a neighborhood; coordinate system mismatch?")
     pc = pc[pc.STAT_NBHD.isin(TARGETS)].copy()
     pc["CLUSTER"] = pc.STAT_NBHD.map(TARGETS)
     pc["PARID"] = pc.SCHEDNUM.map(parid)
     print(pc.STAT_NBHD.value_counts().to_string())
+    notice(f"{hit:.1%} of SFR parcels matched a neighborhood; target parcels: "
+           + ", ".join(f"{k} {v}" for k, v in pc.STAT_NBHD.value_counts().items()))
     keep = set(pc.PARID.dropna())
 
     print("Residential characteristics…")
-    rc = fetch_all(RESCHAR, "1=1", "PARID,BED_RMS,FULL_B,HLF_B,AREA_ABG,BSMT_AREA,FBSMT_SQFT,STORY,"
-                                    "STYLE_CN,CCYRBLT,LAND_SQFT,ZONE10,D_CLASS_CN,UNITS,TOTAL_VALUE")
-    guard("residential", len(rc))
+    res_fields = ["PARID", "BED_RMS", "FULL_B", "HLF_B", "AREA_ABG", "BSMT_AREA", "FBSMT_SQFT", "STORY",
+                  "STYLE_CN", "CCYRBLT", "LAND_SQFT", "ZONE10", "D_CLASS_CN", "UNITS", "TOTAL_VALUE"]
+    rc = fetch_all(RESCHAR, "1=1", ",".join(res_fields))
     rc["PARID"] = rc.PARID.map(parid)
-    rc = rc[rc.PARID.isin(keep)]
+    res_complete = len(rc) >= MIN_ROWS["residential"]
+    if res_complete:
+        rc = rc[rc.PARID.isin(keep)]
+        notice(f"Residential characteristics complete: {len(rc):,} target parcels with beds/baths")
+    else:
+        # Denver's table has been truncated since 2026-07-25. Keep the partial citywide rows only to
+        # calibrate the square-footage proxy for 3 bed / 2 bath; the build step switches back to true
+        # bed/bath filtering automatically once this file is complete again.
+        notice(f"Residential table incomplete ({len(rc):,} rows); using sqft proxy for beds/baths")
 
     print("Sales…")
     sales = fetch_all(SALES, "CLASS='R'", "*")
@@ -196,11 +218,21 @@ def main():
 
     # Write only after every table passed its checks.
     pc.drop(columns=["OBJECTID"]).to_csv(OUT / "parcels.csv.gz", index=False)
-    rc.drop(columns=["OBJECTID"]).to_csv(OUT / "residential.csv.gz", index=False)
+    rc.drop(columns=["OBJECTID"]).to_csv(
+        OUT / ("residential.csv.gz" if res_complete else "residential_partial.csv.gz"), index=False)
+    if res_complete:
+        (OUT / "residential_partial.csv.gz").unlink(missing_ok=True)
+    else:
+        (OUT / "residential.csv.gz").unlink(missing_ok=True)
     sales.to_csv(OUT / "sales.csv.gz", index=False)
-    print(f"Done: {len(pc):,} parcels, {len(rc):,} residential records, {len(sales):,} sales "
-          "in the 13 target neighborhoods")
+    notice(f"Done: {len(pc):,} parcels, {len(rc):,} residential records, {len(sales):,} sales "
+          f"in the {len(TARGETS)} target neighborhoods")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        abort(f"{type(e).__name__}: {e}"[:900])
