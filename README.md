@@ -28,6 +28,7 @@ To change which neighborhoods are covered, edit `scripts/config.py` and push. Th
 | [handbook/OPERATIONS.md](handbook/OPERATIONS.md) | The weekly refresh, shipping a change, troubleshooting, the token |
 | [handbook/ROADMAP.md](handbook/ROADMAP.md) | Backlog and the decision log |
 | [handbook/PROJECT_INSTRUCTIONS.md](handbook/PROJECT_INSTRUCTIONS.md) | Custom instructions for the Claude Project that operates this repo |
+| [handbook/DATA_PRODUCT_STARTER.md](handbook/DATA_PRODUCT_STARTER.md) | Playbook for building the next data source → pipeline → page product with the same setup |
 
 ## Privacy
 
