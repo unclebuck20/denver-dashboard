@@ -124,6 +124,7 @@ def main():
         if beds_mode == "beds":
             baths = (r.FULL_B or 0) + 0.5 * (r.HLF_B or 0)
             row += [None if pd.isna(r.BED_RMS) else int(r.BED_RMS), None if pd.isna(baths) else baths]
+        row.append(str(r.SITUS_ZIP)[:5] if isinstance(r.SITUS_ZIP, str) else "")
         rows.append(row)
 
     out = {
@@ -136,7 +137,7 @@ def main():
             "neighborhoods": [{"name": DISPLAY.get(n, n), "cluster": c,
                                "parcels": int((parcels.STAT_NBHD == n).sum())} for n, c in NEIGHBORHOODS],
             "columns": ["date", "nbhd", "price", "sqft", "year_built", "lot_sqft", "zone", "address",
-                        "recorded"] + (["beds", "baths"] if beds_mode == "beds" else []),
+                        "recorded"] + (["beds", "baths"] if beds_mode == "beds" else []) + ["zip"],
         },
         "cpi": cpi(),
         "sales": rows,
