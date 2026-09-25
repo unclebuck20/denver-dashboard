@@ -48,8 +48,22 @@ a { color: var(--accent); }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--border); font-weight: 600; }
 .seg button:disabled { opacity: .4; cursor: not-allowed; }
 .ctl { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 13px; }
-.ctl input[type=range] { width: 130px; accent-color: var(--accent); }
+.ctl > input[type=range] { width: 150px; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; background: var(--border); margin: 0 4px; }
+.ctl > input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--accent); cursor: pointer; }
+.ctl > input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--accent); cursor: pointer; }
+.ctl > input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .ctl output { color: var(--text); font-weight: 600; min-width: 64px; }
+.ctl .info { cursor: help; border-bottom: 1px dotted var(--text-3); }
+.dual { position: relative; width: 170px; height: 20px; margin: 0 4px; }
+.dual input[type=range] { position: absolute; left: 0; top: 0; width: 100%; margin: 0; pointer-events: none; background: none; -webkit-appearance: none; appearance: none; height: 20px; }
+.dual input[type=range]::-webkit-slider-thumb { pointer-events: auto; -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--accent); cursor: pointer; position: relative; z-index: 2; }
+.dual input[type=range]::-moz-range-thumb { pointer-events: auto; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--accent); cursor: pointer; }
+.dual input[type=range]::-webkit-slider-runnable-track { background: none; }
+.dual input[type=range]::-moz-range-track { background: none; }
+.dual .track { position: absolute; left: 0; right: 0; top: 8px; height: 4px; border-radius: 2px; background: var(--border); }
+.dual .fill { position: absolute; top: 8px; height: 4px; border-radius: 2px; background: var(--accent); }
+.dual input[type=range]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ctl .reset { background: none; border: 0; color: var(--accent); font-size: 12px; cursor: pointer; padding: 0; }
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
 .stack { display: grid; gap: 16px; }
@@ -148,10 +162,18 @@ a.addr:hover .ext { color: var(--accent); }
     <div class="seg" id="homes" aria-label="Homes" hidden>
       <button data-v="32">3+ bed / 2+ bath</button><button data-v="all">All homes</button>
     </div>
-    <label class="ctl" id="sizectl"><span id="sizelabel">Min above-grade size</span>
+    <label class="ctl" id="sizectl"><span id="sizelabel" class="info" title="Finished square feet above ground. Denver's assessor doesn't count basements, so a home with a finished basement is bigger than this number.">Min home size</span>
       <input type="range" id="minsqft" min="0" max="3000" step="100">
       <output id="minsqftOut" class="num"></output>
     </label>
+    <div class="ctl" id="pricectl" role="group" aria-label="Sale price range"><span>Sale price</span>
+      <div class="dual"><div class="track"></div><div class="fill" id="priceFill"></div>
+        <input type="range" id="priceLo" min="0" max="5000000" step="50000" aria-label="Minimum sale price">
+        <input type="range" id="priceHi" min="0" max="5000000" step="50000" aria-label="Maximum sale price">
+      </div>
+      <output id="priceOut" class="num"></output>
+      <button class="reset" id="priceReset" hidden>Reset</button>
+    </div>
   </div>
 
   <!-- Overview -->
@@ -212,6 +234,7 @@ a.addr:hover .ext { color: var(--accent); }
 (async function () {
   const SLOTS = ["--s1", "--s2", "--s3"];
   const MAX_SEL = 3;
+  const PRICE_CAP = 5000000; // top of the price slider = no maximum
   const PAGE = 50;
   const fmt$ = v => v == null || !isFinite(v) ? "–" : "$" + Math.round(v).toLocaleString("en-US");
   const fmtK = v => v == null ? "–" : v >= 1e6 ? "$" + (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + "M" : "$" + Math.round(v / 1e3) + "K";
@@ -247,7 +270,7 @@ a.addr:hover .ext { color: var(--accent); }
   const weekAgo = new Date(new Date(M.latest_recorded + "T12:00") - 7 * 864e5).toISOString().slice(0, 10);
 
   // ---------- state (neighborhoods stored by name so adding neighborhoods never shifts saved picks)
-  const state = { range: "all", metric: "price", dollars: "nominal", minSqft: M.default_min_sqft, view: "sales", homes: "32", sel: [], color: {}, mode: M.beds_mode };
+  const state = { range: "all", metric: "price", dollars: "nominal", minSqft: M.default_min_sqft, view: "sales", homes: "32", priceLo: 0, priceHi: PRICE_CAP, sel: [], color: {}, mode: M.beds_mode };
   try { const saved = JSON.parse(localStorage.getItem("dnsd2") || "null"); if (saved) Object.assign(state, saved); } catch (e) {}
   if (state.mode !== M.beds_mode) { state.minSqft = M.default_min_sqft; state.homes = "32"; state.mode = M.beds_mode; }
   state.sel = state.sel.filter(n => n in nbByName).slice(0, MAX_SEL);
@@ -265,7 +288,8 @@ a.addr:hover .ext { color: var(--accent); }
   if (M.beds_mode === "beds") document.getElementById("homes").hidden = false;
   slider.value = state.minSqft;
 
-  const eligible = s => s.sqft >= state.minSqft && (M.beds_mode !== "beds" || state.homes === "all" || (s.beds >= 3 && s.baths >= 2));
+  const priceOK = s => { const p = dollars(s.price, s.ym); return p >= state.priceLo && (state.priceHi >= PRICE_CAP || p <= state.priceHi); };
+  const eligible = s => s.sqft >= state.minSqft && priceOK(s) && (M.beds_mode !== "beds" || state.homes === "all" || (s.beds >= 3 && s.baths >= 2));
   const dollars = (v, ym) => state.dollars === "real" && cpi ? v * cpiLatest / cpiFor(ym) : v;
   const val = s => state.metric === "ppsf" ? dollars(s.price, s.ym) / s.sqft : dollars(s.price, s.ym);
   const fmtVal = v => state.metric === "ppsf" ? fmt$(v) : fmtK(v);
@@ -287,6 +311,21 @@ a.addr:hover .ext { color: var(--accent); }
   ];
   if (!cpi) { const b = document.querySelector('#dollars [data-v="real"]'); b.disabled = true; b.title = "Inflation data unavailable this refresh"; }
   slider.addEventListener("input", () => { state.minSqft = Number(slider.value); save(); render(); });
+  const pLo = document.getElementById("priceLo"), pHi = document.getElementById("priceHi"), pOut = document.getElementById("priceOut"), pReset = document.getElementById("priceReset");
+  pLo.value = state.priceLo; pHi.value = state.priceHi;
+  const fmtCap = v => v >= PRICE_CAP ? "$5M+" : fmtK(v);
+  function paintPrice() {
+    const lo = state.priceLo, hi = state.priceHi, f = document.getElementById("priceFill");
+    f.style.left = (lo / PRICE_CAP * 100) + "%"; f.style.right = (100 - hi / PRICE_CAP * 100) + "%";
+    const any = lo === 0 && hi >= PRICE_CAP;
+    pOut.textContent = any ? "Any" : lo === 0 ? `Up to ${fmtCap(hi)}` : hi >= PRICE_CAP ? `${fmtK(lo)}+` : `${fmtK(lo)} – ${fmtK(hi)}`;
+    pReset.hidden = any;
+    pLo.style.zIndex = lo > PRICE_CAP * 0.9 ? 3 : 1;
+  }
+  let pt; const priceChanged = () => { paintPrice(); save(); clearTimeout(pt); pt = setTimeout(render, 60); };
+  pLo.addEventListener("input", () => { state.priceLo = Math.min(Number(pLo.value), state.priceHi - 50000); pLo.value = state.priceLo; priceChanged(); });
+  pHi.addEventListener("input", () => { state.priceHi = Math.max(Number(pHi.value), state.priceLo + 50000); pHi.value = state.priceHi; priceChanged(); });
+  pReset.addEventListener("click", () => { state.priceLo = 0; state.priceHi = PRICE_CAP; pLo.value = 0; pHi.value = PRICE_CAP; priceChanged(); });
 
   // ---------- stats
   const t12 = [addMonths(endYM, -11), endYM], p12 = [addMonths(endYM, -23), addMonths(endYM, -12)], p36 = [addMonths(endYM, -47), addMonths(endYM, -36)];
@@ -579,7 +618,7 @@ a.addr:hover .ext { color: var(--accent); }
     const all = sales.filter(s => s.nb === detail.nb && inRange(s)).length;
     const hidden = all - sales.filter(s => s.nb === detail.nb && inRange(s) && eligible(s)).length;
     const hint = document.getElementById("dTableHint"); hint.replaceChildren(document.createTextNode(`${rows.length.toLocaleString()} sales${detail.q ? ` matching "${detail.q}"` : ""}, ${state.range === "all" ? "since 2015" : `last ${state.range} yr`}. Click a column to sort. `));
-    if (hidden > 0) { const b = el("button", { class: "linkbtn" }, `Include ${hidden.toLocaleString()} other single-family sales`); b.addEventListener("click", () => { state.minSqft = 0; slider.value = 0; state.homes = "all"; save(); render(); }); hint.append(b); }
+    if (hidden > 0) { const b = el("button", { class: "linkbtn" }, `Include ${hidden.toLocaleString()} other single-family sales`); b.addEventListener("click", () => { state.minSqft = 0; slider.value = 0; state.homes = "all"; state.priceLo = 0; state.priceHi = PRICE_CAP; pLo.value = 0; pHi.value = PRICE_CAP; save(); render(); }); hint.append(b); }
     if (detail.flash != null) {
       const row = t.querySelector(`tr[data-id="${detail.flash}"]`);
       if (row) { row.classList.add("flash"); row.scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => row.classList.remove("flash"), 2200); }
@@ -604,7 +643,10 @@ a.addr:hover .ext { color: var(--accent); }
 
   function render() {
     painters.forEach(p => p());
-    out.textContent = state.minSqft ? state.minSqft.toLocaleString() + " sq ft" : "Any";
+    out.textContent = state.minSqft ? state.minSqft.toLocaleString() + "+ sq ft" : "Any";
+    { const pct = state.minSqft / Number(slider.max) * 100, bd = css("--border"), ac = css("--accent");
+      slider.style.background = `linear-gradient(to right, ${bd} ${pct}%, ${ac} ${pct}%)`; }
+    paintPrice();
     const inDetail = detail.nb != null;
     document.getElementById("overview").hidden = inDetail;
     document.getElementById("detail").hidden = !inDetail;
