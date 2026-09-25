@@ -38,6 +38,8 @@ body {
 .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 16px 64px; }
 header h1 { font-size: 24px; letter-spacing: -0.01em; margin: 0 0 4px; }
 header p { margin: 0; color: var(--text-2); }
+.maplink { font-size: 13px; font-weight: 600; margin-left: 10px; vertical-align: 3px; text-decoration: none; border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; background: var(--surface); }
+.maplink:hover { background: var(--hover); }
 .num { font-variant-numeric: tabular-nums; }
 button { font: inherit; }
 a { color: var(--accent); }
@@ -145,7 +147,7 @@ a.addr:hover .ext { color: var(--accent); }
 <body>
 <div class="wrap">
   <header>
-    <h1>Denver Neighborhood Sales</h1>
+    <h1>Denver Neighborhood Sales <a class="maplink" href="map.html">Open map →</a></h1>
     <p id="subtitle">Single-family, arm's-length sales · 17 neighborhoods · since 2015</p>
   </header>
 
@@ -202,7 +204,7 @@ a.addr:hover .ext { color: var(--accent); }
   <!-- Neighborhood detail -->
   <main id="detail" class="stack" hidden>
     <div>
-      <p class="back"><button class="linkbtn" id="backBtn">← All neighborhoods</button></p>
+      <p class="back"><button class="linkbtn" id="backBtn">← All neighborhoods</button> <a class="maplink" id="dMap" href="map.html">View on map →</a></p>
       <div class="detailhead"><h2 id="dName"></h2><p id="dSub"></p></div>
     </div>
     <div class="tiles" id="dTiles" style="margin:0"></div>
@@ -654,6 +656,7 @@ a.addr:hover .ext { color: var(--accent); }
       const nb = NB[detail.nb];
       document.title = `${nb.name} · Denver Neighborhood Sales`;
       document.getElementById("dName").textContent = nb.name;
+      document.getElementById("dMap").href = "map.html#n=" + slug(nb.name);
       document.getElementById("dSub").textContent = `${nb.cluster} Denver · ${nb.parcels.toLocaleString()} single-family homes · ${sales.filter(s => s.nb === detail.nb && eligible(s)).length.toLocaleString()} qualifying sales since 2015`;
       renderTiles(document.getElementById("dTiles"), [detail.nb]);
       renderChart(document.getElementById("dChart"), document.getElementById("dLegend"), document.getElementById("dChartTitle"), document.getElementById("dChartHint"),

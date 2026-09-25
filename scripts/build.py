@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+from pyproj import Transformer
+from shapely.geometry import mapping, shape
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw"
@@ -81,8 +83,12 @@ def main():
     s = s[~s.RECEPTION_NUM.isin(multi)]
     steps.append(("Single-parcel deeds", len(s)))
 
+    # Parcel situs coordinates are Colorado Central state plane (ftUS); the map needs lat/lon.
+    to_ll = Transformer.from_crs(2232, 4326, always_xy=True)
+    lon, lat = to_ll.transform(parcels.SITUS_X_COORD.values, parcels.SITUS_Y_COORD.values)
+    parcels = parcels.assign(LAT=lat.round(5), LON=lon.round(5))
     s = s.merge(parcels[["PARID", "STAT_NBHD", "SITUS_ADDRESS_LINE1", "SITUS_ZIP", "ZONE_10", "LAND_AREA",
-                         "RES_ORIG_YEAR_BUILT", "RES_ABOVE_GRADE_AREA"]], on="PARID", how="inner")
+                         "RES_ORIG_YEAR_BUILT", "RES_ABOVE_GRADE_AREA", "LAT", "LON"]], on="PARID", how="inner")
     s = s[s.RES_ORIG_YEAR_BUILT.notna() & (s.RES_ORIG_YEAR_BUILT <= s.SALE_YEAR)]
     steps.append(("Current house existed at time of sale", len(s)))
     s = s[s.RES_ABOVE_GRADE_AREA > 0]
@@ -125,6 +131,7 @@ def main():
             baths = (r.FULL_B or 0) + 0.5 * (r.HLF_B or 0)
             row += [None if pd.isna(r.BED_RMS) else int(r.BED_RMS), None if pd.isna(baths) else baths]
         row.append(str(r.SITUS_ZIP)[:5] if isinstance(r.SITUS_ZIP, str) else "")
+        row += [int(r.PARID), None if pd.isna(r.LAT) else float(r.LAT), None if pd.isna(r.LON) else float(r.LON)]
         rows.append(row)
 
     out = {
@@ -137,13 +144,24 @@ def main():
             "neighborhoods": [{"name": DISPLAY.get(n, n), "cluster": c,
                                "parcels": int((parcels.STAT_NBHD == n).sum())} for n, c in NEIGHBORHOODS],
             "columns": ["date", "nbhd", "price", "sqft", "year_built", "lot_sqft", "zone", "address",
-                        "recorded"] + (["beds", "baths"] if beds_mode == "beds" else []) + ["zip"],
+                        "recorded"] + (["beds", "baths"] if beds_mode == "beds" else []) + ["zip", "pid", "lat", "lon"],
         },
         "cpi": cpi(),
         "sales": rows,
     }
     DOCS.mkdir(exist_ok=True)
     (DOCS / "data.json").write_text(json.dumps(out, separators=(",", ":")))
+    boundaries = RAW / "neighborhoods.geojson"
+    if boundaries.exists():
+        gj = json.loads(boundaries.read_text())
+        feats = []
+        for f in gj["features"]:
+            g = shape(f["geometry"]).simplify(0.00003, preserve_topology=True)
+            geom = json.loads(json.dumps(mapping(g)), parse_float=lambda v: round(float(v), 5))
+            name = f["properties"]["NBHD_NAME"]
+            feats.append({"type": "Feature", "properties": {"name": DISPLAY.get(name, name)}, "geometry": geom})
+        (DOCS / "neighborhoods.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats},
+                                                               separators=(",", ":")))
     for k, v in steps:
         print(f"{v:>7,}  {k}")
     print(f"Wrote {len(rows):,} clean sales (beds mode: {beds_mode})")

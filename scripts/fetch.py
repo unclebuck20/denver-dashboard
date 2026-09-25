@@ -14,6 +14,7 @@ If the parcels or sales tables look partially loaded, the run fails and the prev
 The residential table (beds/baths) has been truncated on Denver's side since 2026-07-25; when it is
 incomplete the run continues and the dashboard uses a square-footage proxy instead.
 """
+import json
 import re
 import sys
 import time
@@ -157,6 +158,16 @@ def main():
     missing = set(TARGETS) - set(polys)
     if missing:
         abort(f"ABORT: neighborhoods not found: {missing}")
+    # Boundaries for the map page, in lat/lon.
+    names = ",".join("'" + n.replace("'", "''") + "'" for n in TARGETS)
+    r = S.get(NBHDS, params={"where": f"NBHD_NAME IN ({names})", "outFields": "NBHD_NAME",
+                             "outSR": 4326, "f": "geojson"}, timeout=120)
+    r.raise_for_status()
+    gj = r.json()
+    if len(gj.get("features", [])) == len(TARGETS):
+        (OUT / "neighborhoods.geojson").write_text(json.dumps(gj))
+    else:
+        print(f"  warning: boundary GeoJSON had {len(gj.get('features', []))} features", file=sys.stderr)
 
     print("Single-family parcels…")
     pc = fetch_all(PARCELS, "D_CLASS_CN LIKE 'SFR%'",
