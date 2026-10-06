@@ -9,7 +9,7 @@ All Denver tables come from the City and County of Denver Open Data Catalog, ser
 
 | Table | Service / layer | What we use | Notes |
 |---|---|---|---|
-| Real property sales and transfers | `ODC_real_property_sales_and_transfers/FeatureServer/60` | Every deed on single-family parcels (`CLASS='R'`): price, sale year/month-day, recording date, deed type, buyer/seller (reduced to flags) | **Holds 2015+ only**, despite the catalog saying 2008/2010. |
+| Real property sales and transfers | `ODC_real_property_sales_and_transfers/FeatureServer/51` | Every deed on single-family parcels (`CLASS='R'`): price, sale year/month-day, recording date, deed type, buyer/seller (reduced to flags) | **Holds 2015+ only**, despite the catalog saying 2008/2010. |
 | Residential characteristics | `ODC_real_property_residential_characteristics/FeatureServer/59` | Bedrooms, full/half baths, above-grade sq ft, year built | Describes the house **today**, not at the time of sale. Was truncated Jul 25–Sep 24, 2026 (see quirks). |
 | Parcels | `ODC_PROP_PARCELS_A/FeatureServer/245` | Address, zip, zoning, lot size, year built, above-grade sq ft, situs coordinates | Coordinates are Colorado Central state plane, ft (EPSG:2232). |
 | Statistical neighborhoods | `ODC_ADMN_NEIGHBORHOOD_A/FeatureServer/13` | The 78 official neighborhood polygons (`NBHD_NAME`) | Use these names in `config.py` exactly as written, e.g. `Cory - Merrill`. |
@@ -40,6 +40,7 @@ The dashboard's "How the numbers are built" section shows the live counts for ea
 | Date | What happened | How it's handled |
 |---|---|---|
 | Jul 25 – Sep 24, 2026 | Denver's residential characteristics table was truncated to 18,000 rows (mostly Green Valley Ranch and Montbello), and the hub CSV export was broken the same way. | `fetch.py` detects fewer than 150k rows, keeps the partial rows, and the pages switch to the sq-ft proxy. Restored Sep 24; switched back automatically. |
+| ~Oct 1, 2026 | Denver republished the sales table as layer 51 (was 60). Every query to the old layer returned `400 Invalid URL`; the Oct 5 run aborted and kept Sep 28 data live. | `SALES` in `fetch.py` now points to layer 51. Same fields. If `Invalid URL` recurs, open the service's `FeatureServer?f=json` to find the new layer ID. |
 | Always | Offset pagination (`resultOffset`) on these services silently stops early. | `fetch_all` pages by `OBJECTID > last_id` (keyset). |
 | Always | The sales service holds nothing before 2015. | History starts in 2015. For a longer view, FHFA's zip-level price index is the candidate. |
 | Always | Beds, baths and square footage describe the current house. | Rule 5 above removes teardown sales. Remodels (pop-tops, basement finishes) still show today's size against older sales, so treat older years as directional. |

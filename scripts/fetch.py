@@ -29,7 +29,7 @@ from shapely.prepared import prep
 from config import TARGETS
 
 BASE = "https://services1.arcgis.com/zdB7qR0BtYrg0Xpl/arcgis/rest/services"
-SALES = f"{BASE}/ODC_real_property_sales_and_transfers/FeatureServer/60/query"
+SALES = f"{BASE}/ODC_real_property_sales_and_transfers/FeatureServer/51/query"
 RESCHAR = f"{BASE}/ODC_real_property_residential_characteristics/FeatureServer/59/query"
 PARCELS = f"{BASE}/ODC_PROP_PARCELS_A/FeatureServer/245/query"
 NBHDS = f"{BASE}/ODC_ADMN_NEIGHBORHOOD_A/FeatureServer/13/query"
