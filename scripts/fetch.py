@@ -202,7 +202,13 @@ def main():
     print("Residential characteristics…")
     res_fields = ["PARID", "BED_RMS", "FULL_B", "HLF_B", "AREA_ABG", "BSMT_AREA", "FBSMT_SQFT", "STORY",
                   "STYLE_CN", "CCYRBLT", "LAND_SQFT", "ZONE10", "D_CLASS_CN", "UNITS", "TOTAL_VALUE"]
-    rc = fetch_all(RESCHAR, "1=1", ",".join(res_fields))
+    # Pull all fields and select ours: after Denver's Oct 2026 republish the service rejects an
+    # explicit outFields list on this table ("Invalid URL").
+    rc = fetch_all(RESCHAR, "1=1", "*")
+    missing_cols = [c for c in res_fields if c not in rc.columns]
+    if missing_cols:
+        abort(f"ABORT: residential table is missing fields {missing_cols}")
+    rc = rc[["OBJECTID"] + res_fields]
     rc["PARID"] = rc.PARID.map(parid)
     res_complete = len(rc) >= MIN_ROWS["residential"]
     if res_complete:
