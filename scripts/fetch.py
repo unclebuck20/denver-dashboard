@@ -56,7 +56,9 @@ def get(url: str, params: dict) -> dict:
             return js
         except Exception as e:  # noqa: BLE001
             if attempt == 4:
-                raise
+                svc = url.split("/services/")[-1].replace("/query", "")
+                shown = {k: v for k, v in params.items() if k in ("where", "outFields", "f")}
+                raise RuntimeError(f"{svc} {shown}: {e}") from e
             print(f"  retry {attempt + 1}: {e}", file=sys.stderr)
             time.sleep(3 * (attempt + 1))
 
